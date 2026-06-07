@@ -1,0 +1,23 @@
+# ── .NET build output ───────────────────────────────────────────────
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+
+# ── Distribution / publish output ───────────────────────────────────
+publish/
+
+# ── Local runtime & debug artifacts ─────────────────────────────────
+debug/
+crops/
+*.db
+*.log
+
+# ── Test fixtures with players' in-game usernames (kept local only) ──
+test-screenshots/
+
+# ── Generated diagnostic dumps at the repo root ─────────────────────
+# The OCR calibration tests/overlays dump *.txt and overlay *.png here.
+/*.txt
+/*.png

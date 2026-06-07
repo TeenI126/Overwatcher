@@ -1,0 +1,189 @@
+<UserControl x:Class="OwTracker.App.Views.MatchHistoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:conv="clr-namespace:OwTracker.App.Converters"
+             mc:Ignorable="d"
+             d:DesignHeight="500" d:DesignWidth="1000">
+    <UserControl.Resources>
+        <!-- Must be declared per-UserControl: a UserControl StaticResource lookup can't reach the
+             parent Window's resources (see CLAUDE.md). -->
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <conv:InverseBoolToVisibilityConverter x:Key="InvBoolToVis" />
+
+        <!-- Shared styling for the per-team player grids: highlight my own row. -->
+        <Style x:Key="TeamRowStyle" TargetType="DataGridRow">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsMe}" Value="True">
+                    <Setter Property="Background" Value="#FF2D4A6B" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="Match History" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <Button Content="Refresh" Margin="16,0,0,0" Padding="12,4"
+                    Command="{Binding RefreshCommand}" />
+            <TextBlock Text="{Binding Matches.Count, StringFormat={}{0} matches}"
+                       Margin="16,0,0,0" VerticalAlignment="Center" Opacity="0.6" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.1*" MinWidth="380" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="1.4*" MinWidth="420" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Master: the match list -->
+            <DataGrid Grid.Column="0" ItemsSource="{Binding Matches}"
+                      SelectedItem="{Binding SelectedMatch, Mode=TwoWay}"
+                      AutoGenerateColumns="False" IsReadOnly="True"
+                      CanUserSortColumns="True" HeadersVisibility="Column"
+                      SelectionMode="Single" GridLinesVisibility="Horizontal">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Date" Width="150"
+                                        Binding="{Binding MatchDatetime, StringFormat=g}" />
+                    <DataGridTextColumn Header="Map" Width="*" Binding="{Binding MapName}" />
+                    <DataGridTextColumn Header="Outcome" Width="80" Binding="{Binding Outcome}" />
+                    <DataGridTextColumn Header="Score" Width="70">
+                        <DataGridTextColumn.Binding>
+                            <MultiBinding StringFormat="{}{0}-{1}">
+                                <Binding Path="MyTeamScore" />
+                                <Binding Path="EnemyTeamScore" />
+                            </MultiBinding>
+                        </DataGridTextColumn.Binding>
+                    </DataGridTextColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch" Background="Transparent" />
+
+            <!-- Detail: everything captured for the selected match -->
+            <Border Grid.Column="2" BorderBrush="#33000000" BorderThickness="1"
+                    CornerRadius="4" Padding="14">
+                <Grid>
+                    <!-- Placeholder when nothing is selected -->
+                    <TextBlock Text="Select a match to see all captured details."
+                               Opacity="0.5" VerticalAlignment="Center" HorizontalAlignment="Center"
+                               Visibility="{Binding HasDetail, Converter={StaticResource InvBoolToVis}}" />
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                  Visibility="{Binding HasDetail, Converter={StaticResource BoolToVis}}">
+                        <StackPanel DataContext="{Binding Detail}">
+                            <!-- Header -->
+                            <TextBlock Text="{Binding MapName}" FontSize="22" FontWeight="Bold" />
+                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                <TextBlock Text="{Binding Outcome}" FontSize="14" FontWeight="SemiBold" />
+                                <TextBlock Margin="10,0,0,0" FontSize="14">
+                                    <Run Text="{Binding MyTeamScore, Mode=OneWay}" />
+                                    <Run Text="–" />
+                                    <Run Text="{Binding EnemyTeamScore, Mode=OneWay}" />
+                                </TextBlock>
+                            </StackPanel>
+
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Date" Opacity="0.6" Margin="0,1,16,1" />
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding MatchDatetime, StringFormat=f}" Margin="0,1" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Length" Opacity="0.6" Margin="0,1,16,1" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding GameLength, StringFormat=mm\\:ss}" Margin="0,1" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Mode" Opacity="0.6" Margin="0,1,16,1" />
+                                <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,1">
+                                    <Run Text="{Binding GameMode, Mode=OneWay}" />
+                                    <Run Text="·" />
+                                    <Run Text="{Binding RankingMode, Mode=OneWay}" />
+                                    <Run Text="·" />
+                                    <Run Text="{Binding QueueType, Mode=OneWay}" />
+                                </TextBlock>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Scraped" Opacity="0.6" Margin="0,1,16,1" />
+                                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ScrapedAt, StringFormat=g}" Opacity="0.7" Margin="0,1" />
+                            </Grid>
+
+                            <!-- My team -->
+                            <TextBlock Text="My Team" FontWeight="SemiBold" Margin="0,14,0,4" />
+                            <DataGrid ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=DataContext.MyTeam}"
+                                      AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                      CanUserSortColumns="False" GridLinesVisibility="Horizontal"
+                                      RowStyle="{StaticResource TeamRowStyle}">
+                                <DataGrid.Columns>
+                                    <DataGridTemplateColumn Header="" Width="22">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="★" HorizontalAlignment="Center"
+                                                           Visibility="{Binding IsMe, Converter={StaticResource BoolToVis}}" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="Hero" Width="*" Binding="{Binding EndingHero}" />
+                                    <DataGridTextColumn Header="E" Width="40" Binding="{Binding Eliminations}" />
+                                    <DataGridTextColumn Header="A" Width="40" Binding="{Binding Assists}" />
+                                    <DataGridTextColumn Header="D" Width="40" Binding="{Binding Deaths}" />
+                                    <DataGridTextColumn Header="DMG" Width="64" Binding="{Binding DamageDealt}" />
+                                    <DataGridTextColumn Header="Heal" Width="64" Binding="{Binding HealingDone}" />
+                                    <DataGridTextColumn Header="Mit" Width="64" Binding="{Binding DamageMitigated}" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <!-- Enemy team -->
+                            <TextBlock Text="Enemy Team" FontWeight="SemiBold" Margin="0,14,0,4" />
+                            <DataGrid ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=DataContext.EnemyTeam}"
+                                      AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                      CanUserSortColumns="False" GridLinesVisibility="Horizontal">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Hero" Width="*" Binding="{Binding EndingHero}" />
+                                    <DataGridTextColumn Header="E" Width="40" Binding="{Binding Eliminations}" />
+                                    <DataGridTextColumn Header="A" Width="40" Binding="{Binding Assists}" />
+                                    <DataGridTextColumn Header="D" Width="40" Binding="{Binding Deaths}" />
+                                    <DataGridTextColumn Header="DMG" Width="64" Binding="{Binding DamageDealt}" />
+                                    <DataGridTextColumn Header="Heal" Width="64" Binding="{Binding HealingDone}" />
+                                    <DataGridTextColumn Header="Mit" Width="64" Binding="{Binding DamageMitigated}" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <!-- My hero playtimes -->
+                            <TextBlock Text="My Heroes (playtime)" FontWeight="SemiBold" Margin="0,14,0,4" />
+                            <ItemsControl ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=DataContext.MyHeroes}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,1">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding HeroName}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding TimePlayed, StringFormat=mm\\:ss}" Opacity="0.8" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="(none captured)" Opacity="0.5" Margin="0,1"
+                                       Visibility="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=DataContext.HasMyHeroes,
+                                                    Converter={StaticResource InvBoolToVis}}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>
