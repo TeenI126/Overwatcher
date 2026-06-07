@@ -243,5 +243,8 @@ each scrape run — primary debugging tool), `debug_*.png` (frames saved when a 
   collections the right-hand detail pane binds to. `GetAllAsync` loads `AllPlayers` but NOT
   `HeroPlaytimes` (only the by-id load does), so the detail pane must use the by-id record. The
   IsMe player's row is starred + highlighted via a `DataGridRow` `DataTrigger` on `IsMe`.
-- No git repo currently. The ML classifier is interface-stubbed; real ONNX training/inference,
+- Git repo: **https://github.com/TeenI126/Overwatcher** (public). `test-screenshots/`, build output
+  (`bin`/`obj`/`publish`), local runtime artifacts (`debug/`, `*.db`, `*.log`), and root-level
+  diagnostic dumps (`/*.txt`, `/*.png`) are gitignored — so OCR tests that need the screenshots
+  won't run on a fresh clone. The ML classifier is interface-stubbed; real ONNX training/inference,
   the calibration overlay UI, and CSV export are deferred but have interfaces in place.
