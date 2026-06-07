@@ -1214,10 +1214,38 @@ public class OcrSmokeTests
             Assert.Equal(13868, my[0].DamageDealt);
             Assert.Equal(12822, my[0].DamageMitigated);
             Assert.Equal(17, my[0].Eliminations);   // narrow columns unaffected
-            Assert.Equal(4,  my[0].Deaths);
+            Assert.Equal(9,  my[0].Deaths);         // glyph is a clear 9; the old Tesseract vote
+                                                    // mis-read it as 4 (2×/4×), DigitOcr corrects it
             // Other rows' big numbers still correct.
             Assert.Equal(13105, my[1].DamageDealt);
             Assert.Equal(11464, my[3].DamageDealt);
+        }
+    }
+
+    // The embedded digit templates must load, and template-OCR must read the stat cells that the
+    // general LSTM systematically mis-read (7→4) correctly through the full ExtractTeams pipeline.
+    [Fact]
+    public void DigitOcr_LoadsTemplates() => Assert.True(new DigitOcr().IsReady);
+
+    [Theory]
+    [InlineData("recent3",      1096, 0, 7)]   // ENM2 E — Tesseract voted 4
+    [InlineData("recent3",      1096, 2, 8)]   // ENM2 D
+    [InlineData("teams-zerorow", 937, 0, 7)]   // ENM0 E
+    [InlineData("teams-zerorow", 937, 2, 7)]   // ENM0 D
+    public void DigitOcr_CorrectsStatMisreads(string file, int centre, int col, int expected)
+    {
+        RequireScreenshot(file, out var bmp);
+        using (bmp)
+        using (var ocr = MakeOcr())
+        {
+            var det = new ScreenDetector(ocr);
+            var (my, enm) = det.FindTeamRowCentresByIcon(bmp);
+            var (_, enemyTeam) = ocr.ExtractTeams(bmp, my, enm);
+            var idx = enm.ToList().IndexOf(centre);
+            Assert.True(idx >= 0, $"enemy centre {centre} not detected");
+            var p = enemyTeam[idx];
+            int[] vals = { p.Eliminations, p.Assists, p.Deaths, p.DamageDealt, p.HealingDone, p.DamageMitigated };
+            Assert.Equal(expected, vals[col]);
         }
     }
 
