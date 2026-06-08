@@ -65,6 +65,10 @@ public sealed class OcrEngine : IDisposable
     private readonly string _tessDataPath;
     private TesseractEngine? _engine;
 
+    // Template-based digit reader for the fixed-font stat cells; overrides Tesseract per cell when
+    // confident (it has no 7→4-type glyph ambiguity). Loaded once from the embedded template set.
+    private readonly DigitOcr _digits = new();
+
     // Lazily initialised on first OCR call so app startup never fails if
     // tessdata hasn't been downloaded yet.
     private TesseractEngine Engine => _engine ??= CreateEngine();
@@ -478,6 +482,21 @@ public sealed class OcrEngine : IDisposable
                     : baseline;     // trust 2×'s glyph over a same-length higher-scale substitution
             else
                 result[c] = bestCnt >= 2 ? bestVal : 0;   // 2× missed → rescue from agreement
+        }
+
+        // Template-based override: the fixed stat font reads more reliably glyph-by-glyph than the
+        // general LSTM. Replace a column's value with DigitOcr's when it confidently reads a number;
+        // empty cells (no glyphs → value 0) and low-confidence reads keep the Tesseract result.
+        if (_digits.IsReady)
+        {
+            var cy = rowY + 49;                              // strip is centred at rowY+49
+            for (var c = 0; c < nCols; c++)
+            {
+                var half = c < FirstWideCol ? 36 : 60;       // narrow E/A/D vs wide DMG/H/MIT
+                var rect = new Rectangle(UiCoordinates.Teams_StatColumnCentersX[c] - half, cy - 26, half * 2, 52);
+                var (val, conf) = _digits.ReadCell(screen, rect);
+                if (val > 0 && conf >= 0.78) result[c] = val;
+            }
         }
         return result;
     }
