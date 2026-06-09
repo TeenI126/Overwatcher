@@ -58,15 +58,22 @@ dotnet publish OwTracker.App/OwTracker.App.csproj -c Release -r win-x64 \
 
 ## Architecture
 
-Five projects. The dependency-flow detail below matters because it deviates from the design doc.
+Five projects in `OwTracker.sln` (plus a standalone lab, below). The dependency-flow detail below
+matters because it deviates from the design doc.
 
 | Project | Role |
 |---|---|
-| `OwTracker.Core` | Models, service/repository **interfaces**, and most concrete services (watcher, capture, OCR, scraper, input). No EF dependency. |
+| `OwTracker.Core` | Models, service/repository **interfaces**, and most concrete services (watcher, capture, OCR, scraper, input, `DigitOcr`). No EF dependency. |
 | `OwTracker.Data` | `OwTrackerDbContext` + repository **implementations** + EF migrations. |
 | `OwTracker.ML` | `StubHeroClassifier` (returns Unknown/0-confidence) + `HeroRosterProvider`. Real ONNX inference is deferred. |
 | `OwTracker.App` | WPF shell (5 tabs), ViewModels, DI composition root in `App.xaml.cs`. |
 | `OwTracker.Tests` | xUnit. Heavily used as an **OCR calibration harness** (see below). |
+
+**`OwTracker.OcrLab`** is a **standalone console lab, NOT in `OwTracker.sln`** — build/run it
+explicitly (`dotnet run --project OwTracker.OcrLab`). It regenerates the `DigitOcr` template asset
+(`OwTracker.Core/Assets/DigitTemplates.json`) from the local `test-screenshots/` and is also where
+OCR experiments live (e.g. the Windows.Media.Ocr comparison). It references Core and uses a
+Windows-SDK-versioned TFM (`net9.0-windows10.0.19041.0`) so it can call WinRT APIs.
 
 **Repository implementations live in `OwTracker.Data`, not Core** (the design doc is wrong). They
 need `OwTrackerDbContext`; putting them in Core would make Core→Data while Data→Core (models) — a
