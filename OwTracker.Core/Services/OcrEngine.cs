@@ -333,8 +333,14 @@ public sealed class OcrEngine : IDisposable
     }
 
     /// <summary>Reads the "PLAY TIME" (MM:SS) value from a hero-specific Personal view frame.</summary>
-    public TimeSpan ExtractHeroPlayTime(Bitmap screen) =>
-        ParseTimeSpan(ReadRegion(screen, UiCoordinates.Personal_HeroPlayTime));
+    public TimeSpan ExtractHeroPlayTime(Bitmap screen)
+    {
+        // The value is solid white on the bright animated menu gradient, so the plain LSTM garbles
+        // it ("00:55"→"(003.7)", "13:27"→"| KY 4") — the same failure as the map/hero names. Read via
+        // the white-text mask first; fall back to the plain read only if the masked read won't parse.
+        var white = ParseTimeSpan(ReadRegionWhiteText(screen, UiCoordinates.Personal_HeroPlayTime));
+        return white > TimeSpan.Zero ? white : ParseTimeSpan(ReadRegion(screen, UiCoordinates.Personal_HeroPlayTime));
+    }
 
     /// <summary>Left-/right-column X centres of the All-Heroes value cards (2560×1440).</summary>
     private const int Personal_LeftColX = 805, Personal_RightColX = 1480;

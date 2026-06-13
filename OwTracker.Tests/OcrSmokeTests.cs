@@ -1039,6 +1039,17 @@ public class OcrSmokeTests
         File.WriteAllLines(Path.Combine(ScreenshotDir, "..", "herotab-diag.txt"), lines);
     }
 
+    // PLAY TIME on a bright-gradient frame: the plain LSTM garbles the white value ("00:55"→
+    // "(003.7)"); ExtractHeroPlayTime must recover it via the white-text mask.
+    [Fact]
+    public void Personal_ReadsHeroPlayTime_BrightFrame()
+    {
+        RequireScreenshot("personal-playtime-bright", out var bmp);   // ASHE, PLAY TIME 00:55
+        using (bmp)
+        using (var ocr = MakeOcr())
+            Assert.Equal(new TimeSpan(0, 0, 55), ocr.ExtractHeroPlayTime(bmp));
+    }
+
     // HeroRoster.Snap fuzzy (Levenshtein) fallback recovers glyph-corrupted reads the substring/LCS
     // pass misses: a highlighted/selected sidebar tab ("SO .IOUIRN"→Sojourn) and accented names the
     // LSTM mangles ("Lclo"→Lúcio). Short/ambiguous reads must stay Unknown rather than mis-snap.
