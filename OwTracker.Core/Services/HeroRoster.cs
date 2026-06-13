@@ -152,7 +152,47 @@ public static class HeroRoster
                 best = canonical;
             }
         }
-        return best;
+        if (best is not null) return best;
+
+        // Fallback: nearest hero by normalised Levenshtein distance. The substring/LCS pass above
+        // misses reads where the GLYPHS are corrupted rather than merely prefixed/suffixed — the two
+        // big cases being a highlighted/selected sidebar tab ("SO .IOUIRN" for Sojourn) and accented
+        // names the LSTM mangles ("LCLO"/"LHICLO" for Lúcio, the Ú breaks segmentation). Edit distance
+        // tolerates substitutions/drops the contiguous LCS can't.
+        //
+        // Short reads are ambiguous (e.g. "ICO" is closer to ECHO than LÚCIO), so require ≥4 chars,
+        // a close best (≤45% of the longer string differs) AND a clear margin over the runner-up —
+        // otherwise leave it Unknown rather than guess.
+        if (o.Length < 4) return null;
+        string? near = null;
+        var d1 = double.MaxValue;
+        var d2 = double.MaxValue;
+        foreach (var (canonical, n) in Normalised)
+        {
+            var ratio = (double)Levenshtein(o, n) / Math.Max(o.Length, n.Length);
+            if (ratio < d1) { d2 = d1; d1 = ratio; near = canonical; }
+            else if (ratio < d2) { d2 = ratio; }
+        }
+        // d1 ≤ 0.45: at most ~45% of the longer string differs. Margin > 0.09: the best must be
+        // clearly closer than the runner-up (0.09, not 0.10, so an exact 0.10 gap survives binary
+        // floating-point rounding of e.g. 0.5 − 0.4).
+        return d1 <= 0.45 && d2 - d1 > 0.09 ? near : null;
+    }
+
+    private static int Levenshtein(string a, string b)
+    {
+        var prev = new int[b.Length + 1];
+        var cur  = new int[b.Length + 1];
+        for (var j = 0; j <= b.Length; j++) prev[j] = j;
+        for (var i = 1; i <= a.Length; i++)
+        {
+            cur[0] = i;
+            for (var j = 1; j <= b.Length; j++)
+                cur[j] = Math.Min(Math.Min(prev[j] + 1, cur[j - 1] + 1),
+                                  prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1));
+            (prev, cur) = (cur, prev);
+        }
+        return prev[b.Length];
     }
 
     private static int LongestCommonSubstring(string a, string b)

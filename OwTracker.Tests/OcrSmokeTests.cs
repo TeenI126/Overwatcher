@@ -1039,6 +1039,19 @@ public class OcrSmokeTests
         File.WriteAllLines(Path.Combine(ScreenshotDir, "..", "herotab-diag.txt"), lines);
     }
 
+    // HeroRoster.Snap fuzzy (Levenshtein) fallback recovers glyph-corrupted reads the substring/LCS
+    // pass misses: a highlighted/selected sidebar tab ("SO .IOUIRN"→Sojourn) and accented names the
+    // LSTM mangles ("Lclo"→Lúcio). Short/ambiguous reads must stay Unknown rather than mis-snap.
+    [Theory]
+    [InlineData("SO .IOUIRN", "Sojourn")]   // selected-tab garble (dist 0.25)
+    [InlineData("Lclo",       "Lúcio")]     // LÚCIO at 4× (dist 0.40, margin over Echo)
+    [InlineData("Ico",        null)]        // too short — closer to Echo than Lúcio → reject
+    [InlineData("LHiclo",     null)]        // dist 0.50 > 0.45 → reject (no confident match)
+    [InlineData("Echo",       "Echo")]      // clean name still resolves (LCS pass, no regression)
+    [InlineData("zzzzzz",     null)]        // junk → no match
+    public void HeroRoster_Snap_FuzzyFallback(string ocr, string? expected)
+        => Assert.Equal(expected, HeroRoster.Snap(ocr));
+
     // ReadHeroTabName must recover white sidebar names on a bright-gradient frame (white-mask) AND
     // not regress the clean darker fixture.
     // Newer heroes added from the live in-game roster (and via heroes.txt) must be recognised.
@@ -1059,6 +1072,8 @@ public class OcrSmokeTests
     [InlineData("personal-allheroes",     0, "Cassidy")]
     [InlineData("personal-allheroes",     1, "Sojourn")]
     [InlineData("personal-allheroes",     2, "Echo")]
+    [InlineData("personal-lucio",         3, "Lúcio")]    // accented name — recovered via multi-scale + fuzzy snap
+    [InlineData("personal-lucio",         5, "Kiriko")]   // 6th hero on the same frame still reads
     public void Personal_ReadHeroTabName_RecoversWhiteNames(string file, int slot, string expected)
     {
         RequireScreenshot(file, out var bmp);

@@ -262,7 +262,11 @@ public sealed class ScreenDetector
                 if (buf[i] > 180 && buf[i + 1] > 180 && buf[i + 2] > 180) white++;
             }
         }
-        return white >= 60;   // a hero NAME is 700+ white px; an empty pill / purple gradient → ~0
+        // A hero NAME is 666–1244 white px (measured across frames; even short names like Ashe/Ana
+        // are ≥666). An empty spacer pill reads ~0 normally, but up to ~168 on some frames — the old
+        // 60 threshold counted those as a phantom hero (a bogus "Unknown" slot). 300 sits in the
+        // wide gap (168 ↔ 666) so spacers are rejected without dropping any real name.
+        return white >= 300;
     }
 
     /// <summary>

@@ -318,8 +318,15 @@ public sealed class OcrEngine : IDisposable
             return HeroRoster.Snap(up);
         }
 
-        try { var hit = Resolve(ReadRegionWhiteText(screen, roi)); if (hit is not null) return hit; }
-        catch { /* fall through to plain read */ }
+        // Try the white-text mask at several upscales: a name the LSTM mangles at one scale often
+        // reads (or reads close enough for HeroRoster's fuzzy snap) at another — e.g. accented
+        // "LÚCIO" reads "Ico" at 3× but "Lclo" at 4×, which snaps to Lúcio. Return the first that
+        // resolves; the default 3× is tried first so clean names cost only one OCR pass.
+        foreach (var scale in new[] { 3, 4, 2 })
+        {
+            try { var hit = Resolve(ReadRegionWhiteText(screen, roi, scale: scale)); if (hit is not null) return hit; }
+            catch { /* try next scale / the plain read */ }
+        }
 
         try   { return Resolve(ReadRegion(screen, roi)); }
         catch { return null; }
@@ -584,10 +591,10 @@ public sealed class OcrEngine : IDisposable
     /// strip mangles even crisp text ("HAVANA" → "g FAT.", "DORADO" → "(pe 7.10 0)"). Masking to
     /// white text removes the gradient entirely, so the read is background-independent.
     /// </summary>
-    public string ReadRegionWhiteText(Bitmap source, Rectangle roi, byte threshold = 190)
+    public string ReadRegionWhiteText(Bitmap source, Rectangle roi, byte threshold = 190, int scale = 3)
     {
         using var crop      = ClampAndCrop(source, roi);
-        using var processed = PreProcessWhiteText(crop, scale: 3, threshold: threshold);
+        using var processed = PreProcessWhiteText(crop, scale: scale, threshold: threshold);
         using var pixData   = BitmapToPix(processed);
         using var page      = Engine.Process(pixData, PageSegMode.SingleLine);
         return page.GetText() ?? string.Empty;
