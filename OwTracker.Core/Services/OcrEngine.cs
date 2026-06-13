@@ -115,11 +115,11 @@ public sealed class OcrEngine : IDisposable
         // Read the whole info box as one multi-line block — robust to small drift.
         var infoBlock = ReadRegionBlock(screen, UiCoordinates.Summary_InfoBox);
 
-        ParseScore(infoBlock, out var myScore, out var enemyScore);
+        var scoreKnown = ParseScore(infoBlock, out var myScore, out var enemyScore);
         var dt      = ParseMatchDate(infoBlock);
         var length  = ParseGameLength(infoBlock);
         var mode    = ParseGameMode(infoBlock);
-        var outcome = ParseOutcome(outcomeRaw, myScore, enemyScore);
+        var outcome = ParseOutcome(outcomeRaw, myScore, enemyScore, scoreKnown);
 
         var heroCards = new List<HeroCardData>();
         for (var i = 0; i < UiCoordinates.Summary_MaxHeroCards; i++)
@@ -813,15 +813,35 @@ public sealed class OcrEngine : IDisposable
     private static string NormaliseOcrNoise(string raw)
         => raw.Replace("|", "1");
 
-    private static void ParseScore(string raw, out int my, out int enemy)
+    /// <summary>
+    /// Parses "· FINAL SCORE: 2 VS 1" into the two scores. Returns false when no "X VS Y"
+    /// could be read at all (so the caller can avoid fabricating a 0–0 draw — see ParseOutcome).
+    /// </summary>
+    private static bool ParseScore(string raw, out int my, out int enemy)
     {
-        // "· FINAL SCORE: 2 VS 1" — normalise "V5"→"VS" and "|"→"1"
+        my = enemy = 0;
         var n = NormaliseOcrNoise(raw);
-        n = Regex.Replace(n, @"V[5S]", "VS", RegexOptions.IgnoreCase);
-        // Match digits OR common digit look-alikes around VS
-        var m = Regex.Match(n, @"(\d+)\s*VS\s*(\d+)", RegexOptions.IgnoreCase);
-        my    = m.Success ? int.Parse(m.Groups[1].Value) : 0;
-        enemy = m.Success ? int.Parse(m.Groups[2].Value) : 0;
+
+        // Isolate the score line (everything after "SCORE" up to the next newline) before applying
+        // digit look-alike fixes, so we don't corrupt letters in the other info-box lines.
+        var idx = n.IndexOf("SCORE", StringComparison.OrdinalIgnoreCase);
+        var seg = idx >= 0 ? n[(idx + "SCORE".Length)..] : n;
+        var nl  = seg.IndexOf('\n');
+        if (nl >= 0) seg = seg[..nl];
+
+        // The score font's "0" reliably OCRs as the letter O/o/Q (a leading "0 VS 1" reads
+        // "O VS 1"); "1" can read as I/l. Map those look-alikes to digits within the score line
+        // ONLY, THEN match. Without this a shutout score (my team scored 0) yields no match →
+        // 0 vs 0 → a false DRAW.
+        seg = Regex.Replace(seg, "[OoQ]", "0");
+        seg = Regex.Replace(seg, "[Il]", "1");
+        seg = Regex.Replace(seg, @"V[5S]", "VS", RegexOptions.IgnoreCase);
+
+        var m = Regex.Match(seg, @"(\d+)\s*VS\s*(\d+)", RegexOptions.IgnoreCase);
+        if (!m.Success) return false;
+        my    = int.Parse(m.Groups[1].Value);
+        enemy = int.Parse(m.Groups[2].Value);
+        return true;
     }
 
     private static DateTime ParseMatchDate(string raw)
@@ -865,7 +885,7 @@ public sealed class OcrEngine : IDisposable
     /// Determines the outcome. Tries the (large-italic, often noisy) banner OCR first,
     /// falling back to the score. Returns "VICTORY" / "DEFEAT" / "DRAW".
     /// </summary>
-    private static string ParseOutcome(string rawBanner, int myScore, int enemyScore)
+    private static string ParseOutcome(string rawBanner, int myScore, int enemyScore, bool scoreKnown)
     {
         var up = rawBanner.ToUpperInvariant();
         // Banner is one word; match on the leading letters that survive OCR.
@@ -873,7 +893,11 @@ public sealed class OcrEngine : IDisposable
         if (up.StartsWith("DE") || up.Contains("FEAT")) return "DEFEAT";
         if (up.StartsWith("DR") || up.Contains("RAW"))  return "DRAW";
 
-        // Fallback: derive from score (player's team is listed first).
+        // Fallback: derive from score (player's team is listed first). If the score itself
+        // couldn't be read, report UNKNOWN rather than fabricating a DRAW — a 0–0 default would
+        // silently mislabel shutout losses (and a true 0–0 draw is rare but real, so we only
+        // call DRAW when the score was actually read as equal).
+        if (!scoreKnown) return "UNKNOWN";
         if (myScore > enemyScore) return "VICTORY";
         if (myScore < enemyScore) return "DEFEAT";
         return "DRAW";
