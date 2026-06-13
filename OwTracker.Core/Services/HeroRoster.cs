@@ -31,7 +31,7 @@ public static class HeroRoster
         "Ana", "Baptiste", "Brigitte", "Illari", "Juno", "Kiriko", "Lifeweaver", "Lúcio",
         "Mercy", "Moira", "Zenyatta",
         // Newer heroes added from the live in-game roster (the lists above lag real releases).
-        "Mizuki", "Domina", "Anran", "Emre", "Sierra", "Jetpack Cat", "Wuyang",
+        "Mizuki", "Domina", "Anran", "Emre", "Sierra", "Jetpack Cat", "Wuyang", "Freja",
     };
 
     /// <summary>User-editable roster file (merged with the built-in defaults).</summary>

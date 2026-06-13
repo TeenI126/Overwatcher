@@ -1048,6 +1048,7 @@ public class OcrSmokeTests
     [InlineData("Anran")]
     [InlineData("Emre")]
     [InlineData("Sierra")]
+    [InlineData("Freja")]
     public void HeroRoster_KnowsNewerHeroes(string hero)
         => Assert.Equal(hero, HeroRoster.Snap(hero.ToUpperInvariant()));
 
