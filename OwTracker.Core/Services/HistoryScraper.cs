@@ -37,6 +37,10 @@ public sealed class HistoryScraper
     /// <summary>When set (deep scrape), every Teams frame is saved to the debug folder.</summary>
     private bool _saveEveryTeamsFrame;
 
+    /// <summary>When set (deep scrape), an already-stored match is overwritten with the fresh
+    /// re-read instead of being left untouched — a back-fill corrects records with improved OCR.</summary>
+    private bool _overwriteExisting;
+
     public HistoryScraper(
         IInputSimulator       input,
         ScreenCapturer        capturer,
@@ -75,6 +79,7 @@ public sealed class HistoryScraper
         startIndex   = Math.Clamp(startIndex, 0, MaxGames - 1);
         var endIndex = Math.Min(startIndex + (maxGames ?? MaxGames), MaxGames);
         _saveEveryTeamsFrame = !stopOnDuplicates;   // deep scrape: capture all Teams frames for calibration
+        _overwriteExisting   = !stopOnDuplicates;   // deep scrape: re-read overwrites the stored row
 
         // Fresh log file for each scrape run.
         try { File.WriteAllText(_logFile,
@@ -269,7 +274,7 @@ public sealed class HistoryScraper
             }
         }
 
-        Log($"Done. New: {newRecords}, duplicates skipped: {duplicates}.");
+        Log($"Done. New: {newRecords}, duplicates {(_overwriteExisting ? "overwritten" : "skipped")}: {duplicates}.");
         return new ScrapeResult(newRecords, duplicates, null);
     }
 
@@ -398,19 +403,20 @@ public sealed class HistoryScraper
                 LogTeam("MY ", my);
                 LogTeam("ENM", enm);
 
-                // Red flag: a row with a 0 in E, D, or DMG — a real player rarely has exactly 0 in
-                // any of these, so a 0 most likely means a missed/misaligned cell. Save the frame for
+                // Red flag: a row with a 0 in E or DMG — a real player rarely has exactly 0 of
+                // either, so a 0 most likely means a missed/misaligned cell. Save the frame for
                 // debugging (independent of the ≥3-weak retry, which one bad cell won't trigger).
-                // Assists, Healing and Mitigation are legitimately 0 for many heroes, so excluded.
+                // Deaths is EXCLUDED: 0 deaths is common in one-sided games, so D==0 over-triggered.
+                // Assists, Healing and Mitigation are likewise legitimately 0 for many heroes.
                 static bool ZeroRow(TeamPlayerData p) =>
-                    p.Eliminations == 0 || p.Deaths == 0 || p.DamageDealt == 0;
+                    p.Eliminations == 0 || p.DamageDealt == 0;
                 var zeroRows = my.Count(ZeroRow) + enm.Count(ZeroRow);
                 if (zeroRows > 0)
                 {
                     var zpath = Path.Combine(AppPaths.DebugDirectory,
                         $"debug_teams_zerorow_{DateTime.Now:HHmmss}.png");
                     try { screen.Save(zpath, System.Drawing.Imaging.ImageFormat.Png); } catch { }
-                    Log($"    ⚠ {zeroRows} row(s) have a 0 in E/D/DMG (possible missed cell) — frame → {zpath}");
+                    Log($"    ⚠ {zeroRows} row(s) have a 0 in E/DMG (possible missed cell) — frame → {zpath}");
                 }
 
                 if (_saveEveryTeamsFrame)
@@ -457,8 +463,9 @@ public sealed class HistoryScraper
         {
             var record = BuildMatchRecord(summary, queue ?? new QueueRowData("UNKNOWN", ""),
                                           myTeam, enemyTeam, heroNames, personal, myIndex, myHeroes);
-            var saved = await _matchRepo.UpsertAsync(record, ct);
-            // UpsertAsync returns the SAME instance on insert, a DIFFERENT (existing) one on dup.
+            var saved = await _matchRepo.UpsertAsync(record, _overwriteExisting, ct);
+            // UpsertAsync returns the SAME instance on insert, a DIFFERENT (existing) one on dup
+            // (the existing row is overwritten in deep mode, but still reported as a duplicate).
             return ReferenceEquals(saved, record) ? RowStatus.NewRecord : RowStatus.DbDuplicate;
         }
 
@@ -553,6 +560,7 @@ public sealed class HistoryScraper
                 if (_detector.IsSidebarSlotSelected(allFrame, allHeroesSlot)) break;
                 Log($"    Personal: ALL HEROES view didn't land (attempt {attempt + 1}) — re-clicking.");
             }
+            if (allFrame is null) return (none, noHeroes);   // never captured a frame
 
             PersonalStats? stats = null;
             var heroNames = new List<string>();

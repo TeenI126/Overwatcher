@@ -7,8 +7,12 @@ public interface IMatchRepository
     /// <summary>
     /// Inserts the match, or returns the existing one if a record with the same
     /// (MapName, MatchDatetime) already exists. Deduplication per design §7.
+    /// When <paramref name="overwrite"/> is true, an existing row (and its child players/playtimes)
+    /// is REPLACED with the freshly-scraped data — used by a deep back-fill to correct records
+    /// re-read with improved OCR. The return is the same instance as <paramref name="record"/> only
+    /// on insert; a different instance means it already existed (whether or not it was overwritten).
     /// </summary>
-    Task<MatchRecord> UpsertAsync(MatchRecord record, CancellationToken ct = default);
+    Task<MatchRecord> UpsertAsync(MatchRecord record, bool overwrite = false, CancellationToken ct = default);
 
     Task<IReadOnlyList<MatchRecord>> GetAllAsync(CancellationToken ct = default);
 

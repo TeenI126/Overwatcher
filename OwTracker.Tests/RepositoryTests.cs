@@ -43,6 +43,49 @@ public class RepositoryTests
     }
 
     [Fact]
+    public async Task Match_Upsert_NoOverwrite_LeavesExistingUntouched()
+    {
+        using var factory = new TestDbContextFactory();
+        var repo = new MatchRepository(factory);
+        var when = new DateTime(2026, 1, 1, 20, 0, 0, DateTimeKind.Utc);
+
+        await repo.UpsertAsync(NewMatch(when: when));   // Win, 2-1
+        var changed = NewMatch(when: when);
+        changed.Outcome = MatchOutcome.Loss; changed.MyTeamScore = 0; changed.EnemyTeamScore = 2;
+        await repo.UpsertAsync(changed);                // default overwrite:false → ignored
+
+        Assert.Equal(1, await repo.CountAsync());
+        var stored = (await repo.GetAllAsync()).Single();
+        Assert.Equal(MatchOutcome.Win, stored.Outcome);   // original kept
+        Assert.Equal(2, stored.MyTeamScore);
+    }
+
+    [Fact]
+    public async Task Match_Upsert_Overwrite_ReplacesFieldsAndPlayers()
+    {
+        using var factory = new TestDbContextFactory();
+        var repo = new MatchRepository(factory);
+        var when = new DateTime(2026, 1, 1, 20, 0, 0, DateTimeKind.Utc);
+
+        var original = NewMatch(when: when);            // Win, 2-1
+        original.AllPlayers.Add(new PlayerRecord { IsMe = true, Team = "My Team", EndingHero = "Unknown" });
+        await repo.UpsertAsync(original);
+
+        var corrected = NewMatch(when: when);
+        corrected.Outcome = MatchOutcome.Loss; corrected.MyTeamScore = 0; corrected.EnemyTeamScore = 2;
+        corrected.AllPlayers.Add(new PlayerRecord { IsMe = true, Team = "My Team", EndingHero = "Sojourn" });
+        var saved = await repo.UpsertAsync(corrected, overwrite: true);
+
+        Assert.False(ReferenceEquals(saved, corrected));  // reported as already-present, not new
+        Assert.Equal(1, await repo.CountAsync());          // still one row (replaced, not added)
+        var stored = (await repo.GetByIdAsync(corrected.Id))!;
+        Assert.Equal(MatchOutcome.Loss, stored.Outcome);   // overwritten
+        Assert.Equal(0, stored.MyTeamScore);
+        Assert.Single(stored.AllPlayers);                  // old player replaced, not duplicated
+        Assert.Equal("Sojourn", stored.AllPlayers[0].EndingHero);
+    }
+
+    [Fact]
     public async Task Match_GetById_IncludesPlayers()
     {
         using var factory = new TestDbContextFactory();
