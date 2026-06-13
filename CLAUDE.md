@@ -66,7 +66,7 @@ matters because it deviates from the design doc.
 | `OwTracker.Core` | Models, service/repository **interfaces**, and most concrete services (watcher, capture, OCR, scraper, input, `DigitOcr`). No EF dependency. |
 | `OwTracker.Data` | `OwTrackerDbContext` + repository **implementations** + EF migrations. |
 | `OwTracker.ML` | `StubHeroClassifier` (returns Unknown/0-confidence) + `HeroRosterProvider`. Real ONNX inference is deferred. |
-| `OwTracker.App` | WPF shell (5 tabs), ViewModels, DI composition root in `App.xaml.cs`. |
+| `OwTracker.App` | WPF shell (left rail + 6 screens — see UI below), ViewModels, DI composition root in `App.xaml.cs`. |
 | `OwTracker.Tests` | xUnit. Heavily used as an **OCR calibration harness** (see below). |
 
 **`OwTracker.OcrLab`** is a **standalone console lab, NOT in `OwTracker.sln`** — build/run it
@@ -88,6 +88,43 @@ short-lived contexts safely. DB + tessdata live under `%APPDATA%\OwTracker\`.
 `BootstrapAsync`. `OcrEngine`'s Tesseract engine is lazily created on first use so DI resolution
 never throws when tessdata is absent. Global exception handlers log to
 `%APPDATA%\OwTracker\error.log`.
+
+### The UI — "tactical HUD" redesign
+
+The shell is **not a `TabControl`**: `MainWindow` is a fixed **left rail** + a `ContentControl`
+whose `Content` is the active screen's view model, mapped to a view by `DataTemplate`s in
+`MainWindow.xaml`. Navigation is decoupled through a singleton **`NavigationService`**
+(`Navigation/`): the rail's two `ListBox`es (TRACKER / SYSTEM groups) two-way-bind their
+`SelectedItem` to `MainViewModel.SelectedNav`; child VMs request screen changes (and Dashboard
+deep-links into Hero×Map) via the service, avoiding a VM construction cycle. `MainViewModel`
+re-pulls the target screen's data on each navigation so screens reflect the latest scrape.
+
+Six screens: **Dashboard** (collector + overview KPIs/recent-form/top-performers),
+**Stored Games** (`MatchHistoryViewModel` — expandable cards with inline scoreboard, client-side
+filter/sort/search over an `ICollectionView`), **Hero × Map** (`HeroMapViewModel` — NEW: heatmap +
+By-Map/By-Hero master-detail), **Sessions** (`SessionViewModel` — rich cards derived from matches),
+plus the kept **Hero Review** and **Settings**.
+
+- **Theme:** `Themes/Hud.xaml` (merged in `App.xaml`) holds all design tokens — color brushes,
+  the three bundled fonts, and every control style/template. Code-side colour logic
+  (converters, hero chips) lives in `Theme/Palette.cs`; keep the hexes in the two in sync.
+- **Fonts are bundled** as `Resource` TTFs in `OwTracker.App/Fonts/` (Saira Semi Condensed / IBM
+  Plex Sans / JetBrains Mono), referenced as `pack://…/Fonts/#<Family>`. Don't assume installed fonts.
+- **Signature clipped corner** = `Controls/NotchClip.cs` attached property (`TopRight`/`BottomLeft`
+  notch size), applied to panels/tiles/cards. `Controls/HeroChip.cs` is the reusable role-coloured
+  initials chip; `Sparkline.cs` and `ActivityTrack.cs` are `OnRender` controls for the Sessions
+  win-rate trend and activity timeline.
+- **Aggregation is `StatsService`** (`OwTracker.Core/Stats/`, pure — no EF/UI): hero×map matrix,
+  totals, recent form, streak, top performers, and **sessions derived by grouping matches on 1h+
+  gaps** (the live `SessionRecord` is open/active-time only and not match-linked, so the Sessions
+  screen is computed from matches per the design's option A). A match is attributed to its
+  **primary hero** (most-played, else IsMe ending hero). VMs load matches via
+  `IMatchRepository.GetAllWithDetailsAsync` (players + my playtimes) and feed them to `StatsService`.
+- **Map → mode** comes from `MapRoster.ResolveMode`/`ModeOf` (normalises the stored `GameMode`, falls
+  back to a map→mode table); **hero → role** from `HeroRoster.RoleOf`. Unknown heroes/roles render
+  with a muted chip (the classifier is still stubbed → other players' heroes read `Unknown`).
+- **SR change** (`MatchRecord.SrChange`, nullable, migration `AddSrChange`) is **bound but not yet
+  scraped** — competitive cards/sessions show it, rendering "—" while null. Wire OCR later to fill it.
 
 ### The scraping pipeline (the heart of the app)
 

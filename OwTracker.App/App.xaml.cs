@@ -2,6 +2,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
+using OwTracker.App.Navigation;
 using OwTracker.App.ViewModels;
 using OwTracker.Core;
 using OwTracker.Core.Services;
@@ -170,6 +171,7 @@ public partial class App : Application
 
         await main.Dashboard.RefreshAsync();
         await main.MatchHistory.RefreshAsync();
+        await main.HeroMap.RefreshAsync();
         await main.Sessions.RefreshAsync();
         await main.HeroReview.RefreshAsync();
     }
@@ -187,9 +189,12 @@ public partial class App : Application
         services.AddSingleton<IInputSimulator, InputSimulator>();
         services.AddSingleton<HistoryScraper>();
 
+        services.AddSingleton<NavigationService>();
+
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<DashboardViewModel>();
         services.AddSingleton<MatchHistoryViewModel>();
+        services.AddSingleton<HeroMapViewModel>();
         services.AddSingleton<SessionViewModel>();
         services.AddSingleton<HeroReviewViewModel>();
         services.AddSingleton<SettingsViewModel>();

@@ -83,6 +83,38 @@ public static class HeroRoster
         return ordered;
     }
 
+    /// <summary>Canonical hero → role ("tank"/"damage"/"support"). New/unknown heroes return "".</summary>
+    private static readonly Dictionary<string, string> HeroRole = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Tank
+        ["D.Va"] = "tank", ["Doomfist"] = "tank", ["Hazard"] = "tank", ["Junker Queen"] = "tank",
+        ["Mauga"] = "tank", ["Orisa"] = "tank", ["Ramattra"] = "tank", ["Reinhardt"] = "tank",
+        ["Roadhog"] = "tank", ["Sigma"] = "tank", ["Winston"] = "tank", ["Wrecking Ball"] = "tank",
+        ["Zarya"] = "tank",
+        // Damage
+        ["Ashe"] = "damage", ["Bastion"] = "damage", ["Cassidy"] = "damage", ["Echo"] = "damage",
+        ["Genji"] = "damage", ["Hanzo"] = "damage", ["Junkrat"] = "damage", ["Mei"] = "damage",
+        ["Pharah"] = "damage", ["Reaper"] = "damage", ["Sojourn"] = "damage", ["Soldier: 76"] = "damage",
+        ["Sombra"] = "damage", ["Symmetra"] = "damage", ["Torbjörn"] = "damage", ["Tracer"] = "damage",
+        ["Venture"] = "damage", ["Widowmaker"] = "damage",
+        // Support
+        ["Ana"] = "support", ["Baptiste"] = "support", ["Brigitte"] = "support", ["Illari"] = "support",
+        ["Juno"] = "support", ["Kiriko"] = "support", ["Lifeweaver"] = "support", ["Lúcio"] = "support",
+        ["Mercy"] = "support", ["Moira"] = "support", ["Zenyatta"] = "support",
+    };
+
+    /// <summary>
+    /// Role ("tank"/"damage"/"support") for a hero name, or "" if unknown (a brand-new hero not yet
+    /// classified). Tolerates a noisy name by snapping it to the roster first.
+    /// </summary>
+    public static string RoleOf(string? hero)
+    {
+        if (string.IsNullOrWhiteSpace(hero)) return string.Empty;
+        if (HeroRole.TryGetValue(hero, out var r)) return r;
+        var snapped = Snap(hero);
+        return snapped is not null && HeroRole.TryGetValue(snapped, out var r2) ? r2 : string.Empty;
+    }
+
     /// <summary>Uppercase, letters+digits only (strips spaces, punctuation, accents).</summary>
     private static string Norm(string s)
     {

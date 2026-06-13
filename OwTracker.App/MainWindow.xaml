@@ -4,54 +4,97 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:OwTracker.App"
+        xmlns:vm="clr-namespace:OwTracker.App.ViewModels"
+        xmlns:conv="clr-namespace:OwTracker.App.Converters"
+        xmlns:ctrl="clr-namespace:OwTracker.App.Controls"
         xmlns:views="clr-namespace:OwTracker.App.Views"
         mc:Ignorable="d"
-        Title="OW Tracker" Height="720" Width="1100">
+        Title="Overwatcher" Height="780" Width="1180"
+        Background="{StaticResource BgBrush}"
+        TextOptions.TextFormattingMode="Ideal">
     <Window.Resources>
-        <local:BoolToTextConverter x:Key="BoolToText" />
         <local:BoolToStatusBrushConverter x:Key="BoolToBrush" />
-        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+
+        <!-- Screen → view mapping: ContentControl renders the active VM via these templates. -->
+        <DataTemplate DataType="{x:Type vm:DashboardViewModel}"><views:DashboardView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:MatchHistoryViewModel}"><views:MatchHistoryView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:HeroMapViewModel}"><views:HeroMapView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SessionViewModel}"><views:SessionView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:HeroReviewViewModel}"><views:HeroReviewView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SettingsViewModel}"><views:SettingsView /></DataTemplate>
+
+        <!-- Rail item content (icon dot + label) -->
+        <DataTemplate x:Key="NavItemTemplate">
+            <TextBlock Text="{Binding Label}" FontSize="12" />
+        </DataTemplate>
     </Window.Resources>
 
-    <DockPanel>
-        <!-- Status bar -->
-        <StatusBar DockPanel.Dock="Bottom">
-            <StatusBarItem>
-                <StackPanel Orientation="Horizontal">
-                    <Ellipse Width="10" Height="10" VerticalAlignment="Center"
-                             Fill="{Binding Watcher.IsOwInForeground, Converter={StaticResource BoolToBrush}}" />
-                    <TextBlock Margin="6,0,0,0"
-                               Text="{Binding Watcher.IsOwInForeground, Converter={StaticResource BoolToText},
-                                      ConverterParameter='Overwatch detected|Overwatch not detected'}" />
-                </StackPanel>
-            </StatusBarItem>
-            <Separator />
-            <StatusBarItem>
-                <TextBlock Text="{Binding Watcher.CurrentActiveDuration, StringFormat='Session: {0:hh\\:mm\\:ss}'}" />
-            </StatusBarItem>
-            <Separator />
-            <StatusBarItem>
-                <TextBlock Text="{Binding HeroReview.UnreviewedCount, StringFormat='Review queue: {0}'}" />
-            </StatusBarItem>
-        </StatusBar>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="196" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
-        <!-- Tabs -->
-        <TabControl Margin="8">
-            <TabItem Header="Dashboard">
-                <views:DashboardView DataContext="{Binding Dashboard}" />
-            </TabItem>
-            <TabItem Header="Match History">
-                <views:MatchHistoryView DataContext="{Binding MatchHistory}" />
-            </TabItem>
-            <TabItem Header="Sessions">
-                <views:SessionView DataContext="{Binding Sessions}" />
-            </TabItem>
-            <TabItem Header="Hero Review">
-                <views:HeroReviewView DataContext="{Binding HeroReview}" />
-            </TabItem>
-            <TabItem Header="Settings">
-                <views:SettingsView DataContext="{Binding Settings}" />
-            </TabItem>
-        </TabControl>
-    </DockPanel>
+        <!-- ============ LEFT RAIL ============ -->
+        <Border Grid.Column="0" Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,1,0">
+            <DockPanel Margin="12,16">
+                <!-- Brand -->
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,0,0,16">
+                    <Border Width="26" Height="26" Background="{StaticResource AccentBrush}"
+                            ctrl:NotchClip.TopRight="9">
+                        <TextBlock Text="O" FontFamily="{StaticResource HeadFont}" FontWeight="Bold"
+                                   Foreground="#FF1A1205" FontSize="15"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock VerticalAlignment="Center" Margin="9,0,0,0"
+                               FontFamily="{StaticResource HeadFont}" FontWeight="Bold" FontSize="14">
+                        <Run Text="OVER" Foreground="{StaticResource TextBrush}" /><Run Text="WATCHER" Foreground="{StaticResource AccentBrush}" />
+                    </TextBlock>
+                </StackPanel>
+
+                <!-- Status chips (bottom) -->
+                <StackPanel DockPanel.Dock="Bottom">
+                    <Border Style="{StaticResource Inset}" Padding="10,9" Margin="0,6,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="7" Height="7" VerticalAlignment="Center"
+                                     Fill="{Binding Watcher.IsOwRunning, Converter={StaticResource BoolToBrush}}" />
+                            <TextBlock Text="Overwatch detected" Margin="8,0,0,0" FontSize="11.5"
+                                       Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Inset}" Padding="10,9" Margin="0,6,0,0">
+                        <DockPanel>
+                            <TextBlock Text="Session" FontSize="11.5" Foreground="{StaticResource MutedBrush}" />
+                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource Mono}" FontSize="11.5"
+                                       Text="{Binding Watcher.CurrentActiveDuration, StringFormat={}{0:hh\\:mm\\:ss}}" />
+                        </DockPanel>
+                    </Border>
+                    <Border Style="{StaticResource Inset}" Padding="10,9" Margin="0,6,0,0">
+                        <DockPanel>
+                            <TextBlock Text="Database" FontSize="11.5" Foreground="{StaticResource MutedBrush}" />
+                            <TextBlock DockPanel.Dock="Right" Style="{StaticResource Mono}" FontSize="11.5"
+                                       Text="{Binding Dashboard.MatchCount, StringFormat={}{0} games}" />
+                        </DockPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Nav (primary + system groups) -->
+                <StackPanel DockPanel.Dock="Top">
+                    <TextBlock Text="TRACKER" Style="{StaticResource MicroLabel}" Margin="8,8,0,4" />
+                    <ListBox ItemsSource="{Binding TrackerNav}" SelectedItem="{Binding SelectedNav, Mode=TwoWay}"
+                             Style="{StaticResource RailList}" ItemContainerStyle="{StaticResource RailItem}"
+                             ItemTemplate="{StaticResource NavItemTemplate}" />
+                    <TextBlock Text="SYSTEM" Style="{StaticResource MicroLabel}" Margin="8,14,0,4" />
+                    <ListBox ItemsSource="{Binding SystemNav}" SelectedItem="{Binding SelectedNav, Mode=TwoWay}"
+                             Style="{StaticResource RailList}" ItemContainerStyle="{StaticResource RailItem}"
+                             ItemTemplate="{StaticResource NavItemTemplate}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ============ MAIN CONTENT ============ -->
+        <ContentControl Grid.Column="1" Content="{Binding CurrentViewModel}" />
+    </Grid>
 </Window>

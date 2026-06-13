@@ -3,82 +3,280 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             mc:Ignorable="d"
-             d:DesignHeight="450" d:DesignWidth="800">
+             xmlns:conv="clr-namespace:OwTracker.App.Converters"
+             xmlns:ctrl="clr-namespace:OwTracker.App.Controls"
+             xmlns:local="clr-namespace:OwTracker.App"
+             mc:Ignorable="d" d:DesignHeight="700" d:DesignWidth="980"
+             Background="{StaticResource BgBrush}">
     <UserControl.Resources>
-        <!-- Defined here (not in parent Window) so StaticResource lookup works in a UserControl -->
-        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <conv:PercentConverter x:Key="Percent" />
+        <conv:OutcomeToBrushConverter x:Key="OutcomeBrush" />
+        <conv:OutcomeToLetterConverter x:Key="OutcomeLetter" />
+        <conv:LogLineToBrushConverter x:Key="LogBrush" />
+        <conv:NotNullToVisibilityConverter x:Key="NotNullVis" />
+        <conv:BoolToVisibilityConverter x:Key="BoolVis" />
+        <conv:ModeToBrushConverter x:Key="ModeBrush" />
+        <local:BoolToTextConverter x:Key="BoolText" />
     </UserControl.Resources>
 
-    <Grid Margin="16">
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Live session timer -->
-        <Border Grid.Row="0" Padding="16" Background="#F2F4F8" CornerRadius="8">
+        <!-- ===== Header ===== -->
+        <Border Grid.Row="0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,18,22,14">
             <StackPanel>
-                <TextBlock Text="Current Session" FontSize="14" FontWeight="SemiBold" Opacity="0.7" />
-                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                    <StackPanel Margin="0,0,40,0">
-                        <TextBlock Text="Active" FontSize="12" Opacity="0.6" />
-                        <TextBlock Text="{Binding Watcher.CurrentActiveDuration, StringFormat=hh\\:mm\\:ss}"
-                                   FontSize="28" FontWeight="Bold" />
+                <DockPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="DASHBOARD" Style="{StaticResource H1}" />
+                        <TextBlock Text="collector &amp; overview" Style="{StaticResource Crumb}"
+                                   VerticalAlignment="Bottom" Margin="12,0,0,3" />
                     </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="Total Open" FontSize="12" Opacity="0.6" />
-                        <TextBlock Text="{Binding Watcher.CurrentTotalDuration, StringFormat=hh\\:mm\\:ss}"
-                                   FontSize="28" FontWeight="Bold" />
-                    </StackPanel>
-                </StackPanel>
+                    <Border DockPanel.Dock="Right" HorizontalAlignment="Right" Style="{StaticResource Inset}"
+                            ctrl:NotchClip.TopRight="9" Padding="12,7">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="7" Height="7" VerticalAlignment="Center" Fill="{StaticResource WinBrush}" />
+                            <TextBlock Text="Overwatch detected" Margin="8,0,0,0" FontWeight="SemiBold"
+                                       FontSize="12.5" VerticalAlignment="Center" />
+                            <TextBlock Text="· ready to scrape" Margin="5,0,0,0" Foreground="{StaticResource MutedBrush}"
+                                       FontSize="12.5" VerticalAlignment="Center"
+                                       Visibility="{Binding Watcher.IsOwRunning, Converter={StaticResource BoolVis}}" />
+                        </StackPanel>
+                    </Border>
+                </DockPanel>
+
+                <!-- KPI row -->
+                <UniformGrid Rows="1" Columns="5" Margin="0,14,0,0">
+                    <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding MatchCount}" Style="{StaticResource KpiValue}" />
+                            <TextBlock Text="Games tracked" Style="{StaticResource KpiKey}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource KpiValueAccent}"
+                                       Text="{Binding WinRate, Converter={StaticResource Percent}, ConverterParameter=sign}" />
+                            <TextBlock Text="Win rate" Style="{StaticResource KpiKey}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource KpiValue}"
+                                       Text="{Binding TrackedPlaytimeHours, StringFormat={}{0}h}" />
+                            <TextBlock Text="Tracked playtime" Style="{StaticResource KpiKey}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource KpiValue}"
+                                       Text="{Binding Watcher.CurrentActiveDuration, StringFormat={}{0:hh\\:mm\\:ss}}" />
+                            <TextBlock Text="This session" Style="{StaticResource KpiKey}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource KpiTile}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource KpiValue}" Foreground="{StaticResource WinBrush}"
+                                           Text="{Binding TodayWins, StringFormat={}{0}W}" />
+                                <TextBlock Style="{StaticResource KpiValue}" Foreground="{StaticResource LossBrush}" Margin="6,0,0,0"
+                                           Text="{Binding TodayLosses, StringFormat={}{0}L}" />
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource KpiKey}" Text="{Binding TodayGames, StringFormat=Today · {0}g}" />
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
             </StackPanel>
         </Border>
 
-        <!-- Quick stats + scrape control -->
-        <Grid Grid.Row="1" Margin="0,16,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal">
-                <StackPanel Margin="0,0,40,0">
-                    <TextBlock Text="Matches Scraped" FontSize="12" Opacity="0.6" />
-                    <TextBlock Text="{Binding MatchCount}" FontSize="22" FontWeight="SemiBold" />
-                </StackPanel>
-                <StackPanel>
-                    <TextBlock Text="Total Active Play" FontSize="12" Opacity="0.6" />
-                    <TextBlock Text="{Binding TotalActiveTime, StringFormat=hh\\:mm\\:ss}"
-                               FontSize="22" FontWeight="SemiBold" />
-                </StackPanel>
-            </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                <!-- CommunityToolkit.Mvvm strips "Async" suffix: StartScrapeAsync → StartScrapeCommand -->
-                <CheckBox Content="Ignore duplicates" VerticalAlignment="Center" Margin="0,0,16,0"
-                          IsChecked="{Binding IgnoreDuplicates}"
-                          ToolTip="Walk the whole list instead of stopping after 3 consecutive already-scraped matches (back-fill)." />
-                <TextBlock Text="Scraping…" Margin="0,0,12,0" VerticalAlignment="Center" Opacity="0.6"
-                           Visibility="{Binding IsScraping, Converter={StaticResource BoolToVisibility}}" />
-                <Button Content="Delete History" Padding="16,10" Margin="0,0,10,0"
-                        Foreground="#B00020"
-                        Command="{Binding DeleteHistoryCommand}" />
-                <Button Content="Scrape Last Match" Padding="16,10" Margin="0,0,10,0"
-                        Command="{Binding ScrapeLastMatchCommand}" />
-                <Button Content="Scrape Last 10" Padding="16,10" Margin="0,0,10,0"
-                        Command="{Binding ScrapeRecentCommand}" />
-                <Button Content="Start Scrape" Padding="20,10"
-                        Command="{Binding StartScrapeCommand}" />
-            </StackPanel>
-        </Grid>
+        <!-- ===== Body ===== -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="22,16,22,22">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.32*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-        <!-- Scrape log (auto-scrolls to latest entry) -->
-        <Border Grid.Row="2" Margin="0,16,0,0" BorderBrush="#DDD" BorderThickness="1" CornerRadius="6">
-            <ListBox x:Name="ScrapeLogList"
-                     ItemsSource="{Binding ScrapeLog}" BorderThickness="0"
-                     FontFamily="Consolas" FontSize="12"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
-        </Border>
+                <!-- LEFT: collector + log -->
+                <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,14">
+                                <TextBlock Text="COLLECTOR" Style="{StaticResource PanelTitle}" />
+                                <Border DockPanel.Dock="Right" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="8,3">
+                                    <TextBlock Style="{StaticResource PanelTag}"
+                                               Text="{Binding IsScraping, Converter={StaticResource BoolText}, ConverterParameter='Scraping…|Idle'}" />
+                                </Border>
+                            </DockPanel>
+
+                            <UniformGrid Rows="1" Columns="3">
+                                <Button Style="{StaticResource ScrapeBtnPrimary}" Margin="0,0,9,0" Command="{Binding StartScrapeCommand}">
+                                    <StackPanel>
+                                        <TextBlock Text="START FULL SCRAPE" FontFamily="{StaticResource HeadFont}" FontWeight="SemiBold" FontSize="13" />
+                                        <TextBlock Text="walk history until 3 dupes" FontSize="10.5" Foreground="#FF6E4A14" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource ScrapeBtn}" Margin="0,0,9,0" Command="{Binding ScrapeRecentCommand}">
+                                    <StackPanel>
+                                        <TextBlock Text="SCRAPE RECENT" FontFamily="{StaticResource HeadFont}" FontWeight="SemiBold" FontSize="13" />
+                                        <TextBlock Text="last 10 games" FontSize="10.5" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource ScrapeBtn}" Command="{Binding ScrapeLastMatchCommand}">
+                                    <StackPanel>
+                                        <TextBlock Text="SCRAPE LAST MATCH" FontFamily="{StaticResource HeadFont}" FontWeight="SemiBold" FontSize="13" />
+                                        <TextBlock Text="top of the list" FontSize="10.5" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                </Button>
+                            </UniformGrid>
+
+                            <DockPanel Margin="0,14,0,0">
+                                <Border DockPanel.Dock="Top" BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,14" />
+                                <Button DockPanel.Dock="Right" Style="{StaticResource Danger}" Content="Delete History"
+                                        Command="{Binding DeleteHistoryCommand}" VerticalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal">
+                                    <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IgnoreDuplicates}" VerticalAlignment="Center" />
+                                    <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="Deep back-fill" FontSize="12" />
+                                        <TextBlock Text="ignore the duplicate-stop rule and walk the whole list"
+                                                   FontSize="10.5" Foreground="{StaticResource MutedBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </DockPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Panel}" Margin="0,14,0,0">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,12">
+                                <TextBlock Text="SCRAPE LOG" Style="{StaticResource PanelTitle}" />
+                                <TextBlock DockPanel.Dock="Right" Style="{StaticResource PanelTag}"
+                                           Text="{Binding ScrapeLog.Count, StringFormat={}{0} lines}" />
+                            </DockPanel>
+                            <Border Background="{StaticResource TermBgBrush}" BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="1" Height="200">
+                                <ListBox x:Name="ScrapeLogList" ItemsSource="{Binding ScrapeLog}" Style="{StaticResource PlainList}"
+                                         Padding="11,8" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" FontFamily="{StaticResource NumFont}" FontSize="11.5"
+                                                       TextWrapping="Wrap" Margin="0,1"
+                                                       Foreground="{Binding Converter={StaticResource LogBrush}}" />
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- RIGHT: at a glance -->
+                <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                    <!-- Recent form -->
+                    <Border Style="{StaticResource Panel}">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,12">
+                                <TextBlock Text="RECENT FORM" Style="{StaticResource PanelTitle}" />
+                                <Border DockPanel.Dock="Right" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="8,3">
+                                    <TextBlock Text="{Binding StreakText}" Style="{StaticResource PanelTag}" />
+                                </Border>
+                            </DockPanel>
+                            <ItemsControl ItemsSource="{Binding RecentForm}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Width="26" Height="30" Margin="0,0,5,5" ctrl:NotchClip.TopRight="6"
+                                                Background="{StaticResource Panel2Brush}">
+                                            <TextBlock Text="{Binding Converter={StaticResource OutcomeLetter}}"
+                                                       Foreground="{Binding Converter={StaticResource OutcomeBrush}}"
+                                                       FontFamily="{StaticResource NumFont}" FontWeight="SemiBold" FontSize="12"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <TextBlock Text="Last 14 ·" Foreground="{StaticResource MutedBrush}" FontFamily="{StaticResource NumFont}" FontSize="12" />
+                                <TextBlock Text="{Binding RecentWins, StringFormat={}{0}W}" Foreground="{StaticResource WinBrush}" FontFamily="{StaticResource NumFont}" FontSize="12" Margin="6,0,0,0" />
+                                <TextBlock Text="{Binding RecentLosses, StringFormat={}{0}L}" Foreground="{StaticResource LossBrush}" FontFamily="{StaticResource NumFont}" FontSize="12" Margin="6,0,0,0" />
+                                <Button Style="{StaticResource LinkBtn}" Content="All games →" HorizontalAlignment="Right" Margin="12,0,0,0"
+                                        Command="{Binding GoStoredGamesCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Top performers -->
+                    <Border Style="{StaticResource Panel}" Margin="0,14,0,0">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,4">
+                                <TextBlock Text="TOP PERFORMERS" Style="{StaticResource PanelTitle}" />
+                                <TextBlock DockPanel.Dock="Right" Text="≥ 3 games" Style="{StaticResource PanelTag}" />
+                            </DockPanel>
+
+                            <Button Style="{StaticResource RowButton}" Command="{Binding OpenTopHeroCommand}"
+                                    Visibility="{Binding TopHero, Converter={StaticResource NotNullVis}}">
+                                <DockPanel>
+                                    <ctrl:HeroChip HeroName="{Binding TopHero.Name}" Role="{Binding TopHero.Role}" ChipSize="38" />
+                                    <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Style="{StaticResource KpiValueAccent}"
+                                               Text="{Binding TopHero.WinRate, Converter={StaticResource Percent}, ConverterParameter=sign}" />
+                                    <StackPanel Margin="12,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding TopHero.Name}" FontFamily="{StaticResource HeadFont}" FontWeight="SemiBold" FontSize="14" />
+                                        <TextBlock Text="{Binding TopHero.Games, StringFormat=Best hero · {0} games}" Foreground="{StaticResource MutedBrush}" FontSize="11" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Button>
+
+                            <Button Style="{StaticResource RowButton}" Command="{Binding OpenTopMapCommand}"
+                                    Visibility="{Binding TopMap, Converter={StaticResource NotNullVis}}">
+                                <DockPanel>
+                                    <Border Width="34" Height="34" ctrl:NotchClip.TopRight="9"
+                                            Background="{Binding TopMap.Mode, Converter={StaticResource ModeBrush}}" />
+                                    <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Style="{StaticResource KpiValueAccent}"
+                                               Text="{Binding TopMap.WinRate, Converter={StaticResource Percent}, ConverterParameter=sign}" />
+                                    <StackPanel Margin="12,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding TopMap.Map}" FontFamily="{StaticResource HeadFont}" FontWeight="SemiBold" FontSize="14" />
+                                        <TextBlock Text="{Binding TopMap.Games, StringFormat=Best map · {0} games}" Foreground="{StaticResource MutedBrush}" FontSize="11" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Button>
+
+                            <Button Style="{StaticResource RowButton}" Command="{Binding OpenMostPlayedCommand}"
+                                    Visibility="{Binding MostPlayed, Converter={StaticResource NotNullVis}}">
+                                <DockPanel>
+                                    <ctrl:HeroChip HeroName="{Binding MostPlayed.Name}" Role="{Binding MostPlayed.Role}" ChipSize="38" />
+                                    <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Style="{StaticResource KpiValue}"
+                                               Text="{Binding MostPlayed.WinRate, Converter={StaticResource Percent}, ConverterParameter=sign}" />
+                                    <StackPanel Margin="12,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding MostPlayed.Name}" FontFamily="{StaticResource HeadFont}" FontWeight="SemiBold" FontSize="14" />
+                                        <TextBlock Text="{Binding MostPlayed.Games, StringFormat=Most played · {0} games}" Foreground="{StaticResource MutedBrush}" FontSize="11" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Jump -->
+                    <Border Style="{StaticResource Panel}" Margin="0,14,0,0" Padding="12">
+                        <UniformGrid Rows="1" Columns="2">
+                            <Button Style="{StaticResource JumpBtn}" Margin="0,0,5,0" Command="{Binding GoStoredGamesCommand}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="→" Foreground="{StaticResource MutedBrush}" />
+                                    <TextBlock Text="STORED GAMES" />
+                                </DockPanel>
+                            </Button>
+                            <Button Style="{StaticResource JumpBtn}" Margin="5,0,0,0" Command="{Binding GoHeatmapCommand}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="→" Foreground="{StaticResource MutedBrush}" />
+                                    <TextBlock Text="HERO × MAP" />
+                                </DockPanel>
+                            </Button>
+                        </UniformGrid>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
     </Grid>
 </UserControl>

@@ -37,6 +37,17 @@ public sealed class MatchRepository : IMatchRepository
             .ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<MatchRecord>> GetAllWithDetailsAsync(CancellationToken ct = default)
+    {
+        await using var db = await _contextFactory.CreateDbContextAsync(ct);
+        return await db.MatchRecords
+            .Include(m => m.AllPlayers)
+            .ThenInclude(p => p.HeroPlaytimes)
+            .OrderByDescending(m => m.MatchDatetime)
+            .AsSplitQuery()
+            .ToListAsync(ct);
+    }
+
     public async Task<MatchRecord?> GetByIdAsync(int id, CancellationToken ct = default)
     {
         await using var db = await _contextFactory.CreateDbContextAsync(ct);
