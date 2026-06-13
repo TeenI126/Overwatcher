@@ -719,15 +719,19 @@ public sealed class HistoryScraper
         var current = DetectCurrentVerbose("initial");
 
         // From wherever we are, get to the escape MENU first.
-        // Pressing ESC opens the menu from the home/PLAY screen or closes a match detail.
-        if (current != GameScreen.EscapeMenu &&
-            current != GameScreen.CareerProfile &&
-            current != GameScreen.GameReportsList)
+        // Pressing ESC opens the menu from the home/PLAY screen or closes a match detail. A single
+        // press doesn't always register / land on the menu, so try up to TWICE before giving up.
+        for (var attempt = 1;
+             attempt <= 2 &&
+             current != GameScreen.EscapeMenu &&
+             current != GameScreen.CareerProfile &&
+             current != GameScreen.GameReportsList;
+             attempt++)
         {
-            Log("  Pressing ESC to open the menu…");
+            Log($"  Pressing ESC to open the menu (attempt {attempt})…");
             await _input.PressEscapeAsync(ct);
             await Task.Delay(600, ct);
-            current = DetectCurrentVerbose("after ESC");
+            current = DetectCurrentVerbose($"after ESC {attempt}");
         }
 
         // ── Escape menu → click CAREER PROFILE (located by text) ───────────
