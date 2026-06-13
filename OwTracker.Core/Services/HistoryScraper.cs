@@ -533,24 +533,36 @@ public sealed class HistoryScraper
                 return (none, noHeroes);
             }
 
-            await _input.ClickAsync(allHeroes.Value, ct);
-            await Task.Delay(750, ct);   // let the stat cards finish animating in before reading
+            // The sidebar is heroes (contiguous from slot 0), SOMETIMES a blank spacer pill, then
+            // the ALL HEROES button. Its slot index bounds the hero region below.
+            var allHeroesSlot = (allHeroes.Value.Y - 308 + 50) / 100;   // +50 = round, not trunc
+
+            // Click ALL HEROES and CONFIRM the combined view actually landed — its tab must become
+            // the blue-selected one. The click sometimes doesn't register; then slot 0 stays selected
+            // and we'd read a single hero's view, where its name OCRs to garbage (highlighted tab) and
+            // its stats aren't the combined totals (breaking the IsMe DMG fingerprint). Re-click until
+            // ALL HEROES is selected.
+            Bitmap? allFrame = null;
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                await _input.ClickAsync(allHeroes.Value, ct);
+                await Task.Delay(750, ct);   // let the stat cards finish animating in before reading
+                allFrame?.Dispose();
+                allFrame = Capture();
+                if (allFrame is null) return (none, noHeroes);
+                if (_detector.IsSidebarSlotSelected(allFrame, allHeroesSlot)) break;
+                Log($"    Personal: ALL HEROES view didn't land (attempt {attempt + 1}) — re-clicking.");
+            }
 
             PersonalStats? stats = null;
             var heroNames = new List<string>();
-            using (var allFrame = Capture())
+            using (allFrame)
             {
-                if (allFrame is null) return (none, noHeroes);
-
                 try   { stats = _ocr.ExtractPersonalAllHeroes(allFrame); }
                 catch (Exception ex) { Log($"    Personal parse failed: {ex.Message}"); }
 
-                // How many heroes did I play? The sidebar is heroes (contiguous from slot 0), then
-                // SOMETIMES a blank spacer pill, then ALL HEROES. The spacer is INCONSISTENT (present
-                // with several heroes, absent with one), so the old fixed "allHeroesSlot − 1" dropped
-                // the only hero of a 1-hero match. Instead count the FILLED slots (white name text)
-                // above the ALL HEROES button — robust to the spacer, not gated on fragile name OCR.
-                var allHeroesSlot = (allHeroes.Value.Y - 308 + 50) / 100;   // +50 = round, not trunc
+                // How many heroes did I play? Count the FILLED slots (white name text) above the ALL
+                // HEROES button — robust to the inconsistent spacer, not gated on fragile name OCR.
                 var heroCount     = 0;
                 for (var i = 0; i < allHeroesSlot && i < UiCoordinates.Personal_MaxHeroTabs; i++)
                     if (_detector.PersonalSlotHasHero(allFrame, i)) heroCount++;
@@ -605,9 +617,26 @@ public sealed class HistoryScraper
             {
                 await _input.ClickAsync(UiCoordinates.Personal_HeroTabClick(i), ct);
                 await Task.Delay(550, ct);   // let the hero card animate in before reading PLAY TIME
-                var time = TimeSpan.Zero;
-                using (var hs = Capture())
-                    if (hs is not null) { try { time = _ocr.ExtractHeroPlayTime(hs); } catch { } }
+
+                // A played hero ALWAYS has a non-zero PLAY TIME, so a 00:00 read is a miss (usually
+                // the card hadn't finished animating in). Settle + re-capture once; if still unread,
+                // save the frame + log the raw OCR so the ROI/timing can be diagnosed.
+                var time   = TimeSpan.Zero;
+                var rawPt  = "";
+                for (var attempt = 0; attempt < 2; attempt++)
+                {
+                    using var hs = Capture();
+                    if (hs is null) break;
+                    try { time  = _ocr.ExtractHeroPlayTime(hs); } catch { }
+                    if (time > TimeSpan.Zero) break;
+                    try { rawPt = _ocr.ReadRegion(hs, UiCoordinates.Personal_HeroPlayTime).Trim().Replace("\n", " "); } catch { }
+                    if (attempt == 0) { await Task.Delay(450, ct); continue; }
+                    var pp = Path.Combine(AppPaths.DebugDirectory,
+                        $"debug_playtime_zero_s{i}_{DateTime.Now:HHmmss}.png");
+                    try { hs.Save(pp, System.Drawing.Imaging.ImageFormat.Png);
+                          Log($"    Hero {heroNames[i]} (slot {i}): PLAY TIME unread (raw=[{rawPt}]) — frame → {pp}"); }
+                    catch { }
+                }
                 heroes.Add(new HeroPlayData(heroNames[i], time));
             }
 
@@ -690,15 +719,19 @@ public sealed class HistoryScraper
         var current = DetectCurrentVerbose("initial");
 
         // From wherever we are, get to the escape MENU first.
-        // Pressing ESC opens the menu from the home/PLAY screen or closes a match detail.
-        if (current != GameScreen.EscapeMenu &&
-            current != GameScreen.CareerProfile &&
-            current != GameScreen.GameReportsList)
+        // Pressing ESC opens the menu from the home/PLAY screen or closes a match detail. A single
+        // press doesn't always register / land on the menu, so try up to TWICE before giving up.
+        for (var attempt = 1;
+             attempt <= 2 &&
+             current != GameScreen.EscapeMenu &&
+             current != GameScreen.CareerProfile &&
+             current != GameScreen.GameReportsList;
+             attempt++)
         {
-            Log("  Pressing ESC to open the menu…");
+            Log($"  Pressing ESC to open the menu (attempt {attempt})…");
             await _input.PressEscapeAsync(ct);
             await Task.Delay(600, ct);
-            current = DetectCurrentVerbose("after ESC");
+            current = DetectCurrentVerbose($"after ESC {attempt}");
         }
 
         // ── Escape menu → click CAREER PROFILE (located by text) ───────────

@@ -115,11 +115,11 @@ public sealed class OcrEngine : IDisposable
         // Read the whole info box as one multi-line block — robust to small drift.
         var infoBlock = ReadRegionBlock(screen, UiCoordinates.Summary_InfoBox);
 
-        ParseScore(infoBlock, out var myScore, out var enemyScore);
+        var scoreKnown = ParseScore(infoBlock, out var myScore, out var enemyScore);
         var dt      = ParseMatchDate(infoBlock);
         var length  = ParseGameLength(infoBlock);
         var mode    = ParseGameMode(infoBlock);
-        var outcome = ParseOutcome(outcomeRaw, myScore, enemyScore);
+        var outcome = ParseOutcome(outcomeRaw, myScore, enemyScore, scoreKnown);
 
         var heroCards = new List<HeroCardData>();
         for (var i = 0; i < UiCoordinates.Summary_MaxHeroCards; i++)
@@ -318,16 +318,29 @@ public sealed class OcrEngine : IDisposable
             return HeroRoster.Snap(up);
         }
 
-        try { var hit = Resolve(ReadRegionWhiteText(screen, roi)); if (hit is not null) return hit; }
-        catch { /* fall through to plain read */ }
+        // Try the white-text mask at several upscales: a name the LSTM mangles at one scale often
+        // reads (or reads close enough for HeroRoster's fuzzy snap) at another — e.g. accented
+        // "LÚCIO" reads "Ico" at 3× but "Lclo" at 4×, which snaps to Lúcio. Return the first that
+        // resolves; the default 3× is tried first so clean names cost only one OCR pass.
+        foreach (var scale in new[] { 3, 4, 2 })
+        {
+            try { var hit = Resolve(ReadRegionWhiteText(screen, roi, scale: scale)); if (hit is not null) return hit; }
+            catch { /* try next scale / the plain read */ }
+        }
 
         try   { return Resolve(ReadRegion(screen, roi)); }
         catch { return null; }
     }
 
     /// <summary>Reads the "PLAY TIME" (MM:SS) value from a hero-specific Personal view frame.</summary>
-    public TimeSpan ExtractHeroPlayTime(Bitmap screen) =>
-        ParseTimeSpan(ReadRegion(screen, UiCoordinates.Personal_HeroPlayTime));
+    public TimeSpan ExtractHeroPlayTime(Bitmap screen)
+    {
+        // The value is solid white on the bright animated menu gradient, so the plain LSTM garbles
+        // it ("00:55"→"(003.7)", "13:27"→"| KY 4") — the same failure as the map/hero names. Read via
+        // the white-text mask first; fall back to the plain read only if the masked read won't parse.
+        var white = ParseTimeSpan(ReadRegionWhiteText(screen, UiCoordinates.Personal_HeroPlayTime));
+        return white > TimeSpan.Zero ? white : ParseTimeSpan(ReadRegion(screen, UiCoordinates.Personal_HeroPlayTime));
+    }
 
     /// <summary>Left-/right-column X centres of the All-Heroes value cards (2560×1440).</summary>
     private const int Personal_LeftColX = 805, Personal_RightColX = 1480;
@@ -584,10 +597,10 @@ public sealed class OcrEngine : IDisposable
     /// strip mangles even crisp text ("HAVANA" → "g FAT.", "DORADO" → "(pe 7.10 0)"). Masking to
     /// white text removes the gradient entirely, so the read is background-independent.
     /// </summary>
-    public string ReadRegionWhiteText(Bitmap source, Rectangle roi, byte threshold = 190)
+    public string ReadRegionWhiteText(Bitmap source, Rectangle roi, byte threshold = 190, int scale = 3)
     {
         using var crop      = ClampAndCrop(source, roi);
-        using var processed = PreProcessWhiteText(crop, scale: 3, threshold: threshold);
+        using var processed = PreProcessWhiteText(crop, scale: scale, threshold: threshold);
         using var pixData   = BitmapToPix(processed);
         using var page      = Engine.Process(pixData, PageSegMode.SingleLine);
         return page.GetText() ?? string.Empty;
@@ -813,15 +826,35 @@ public sealed class OcrEngine : IDisposable
     private static string NormaliseOcrNoise(string raw)
         => raw.Replace("|", "1");
 
-    private static void ParseScore(string raw, out int my, out int enemy)
+    /// <summary>
+    /// Parses "· FINAL SCORE: 2 VS 1" into the two scores. Returns false when no "X VS Y"
+    /// could be read at all (so the caller can avoid fabricating a 0–0 draw — see ParseOutcome).
+    /// </summary>
+    private static bool ParseScore(string raw, out int my, out int enemy)
     {
-        // "· FINAL SCORE: 2 VS 1" — normalise "V5"→"VS" and "|"→"1"
+        my = enemy = 0;
         var n = NormaliseOcrNoise(raw);
-        n = Regex.Replace(n, @"V[5S]", "VS", RegexOptions.IgnoreCase);
-        // Match digits OR common digit look-alikes around VS
-        var m = Regex.Match(n, @"(\d+)\s*VS\s*(\d+)", RegexOptions.IgnoreCase);
-        my    = m.Success ? int.Parse(m.Groups[1].Value) : 0;
-        enemy = m.Success ? int.Parse(m.Groups[2].Value) : 0;
+
+        // Isolate the score line (everything after "SCORE" up to the next newline) before applying
+        // digit look-alike fixes, so we don't corrupt letters in the other info-box lines.
+        var idx = n.IndexOf("SCORE", StringComparison.OrdinalIgnoreCase);
+        var seg = idx >= 0 ? n[(idx + "SCORE".Length)..] : n;
+        var nl  = seg.IndexOf('\n');
+        if (nl >= 0) seg = seg[..nl];
+
+        // The score font's "0" reliably OCRs as the letter O/o/Q (a leading "0 VS 1" reads
+        // "O VS 1"); "1" can read as I/l. Map those look-alikes to digits within the score line
+        // ONLY, THEN match. Without this a shutout score (my team scored 0) yields no match →
+        // 0 vs 0 → a false DRAW.
+        seg = Regex.Replace(seg, "[OoQ]", "0");
+        seg = Regex.Replace(seg, "[Il]", "1");
+        seg = Regex.Replace(seg, @"V[5S]", "VS", RegexOptions.IgnoreCase);
+
+        var m = Regex.Match(seg, @"(\d+)\s*VS\s*(\d+)", RegexOptions.IgnoreCase);
+        if (!m.Success) return false;
+        my    = int.Parse(m.Groups[1].Value);
+        enemy = int.Parse(m.Groups[2].Value);
+        return true;
     }
 
     private static DateTime ParseMatchDate(string raw)
@@ -865,7 +898,7 @@ public sealed class OcrEngine : IDisposable
     /// Determines the outcome. Tries the (large-italic, often noisy) banner OCR first,
     /// falling back to the score. Returns "VICTORY" / "DEFEAT" / "DRAW".
     /// </summary>
-    private static string ParseOutcome(string rawBanner, int myScore, int enemyScore)
+    private static string ParseOutcome(string rawBanner, int myScore, int enemyScore, bool scoreKnown)
     {
         var up = rawBanner.ToUpperInvariant();
         // Banner is one word; match on the leading letters that survive OCR.
@@ -873,7 +906,11 @@ public sealed class OcrEngine : IDisposable
         if (up.StartsWith("DE") || up.Contains("FEAT")) return "DEFEAT";
         if (up.StartsWith("DR") || up.Contains("RAW"))  return "DRAW";
 
-        // Fallback: derive from score (player's team is listed first).
+        // Fallback: derive from score (player's team is listed first). If the score itself
+        // couldn't be read, report UNKNOWN rather than fabricating a DRAW — a 0–0 default would
+        // silently mislabel shutout losses (and a true 0–0 draw is rare but real, so we only
+        // call DRAW when the score was actually read as equal).
+        if (!scoreKnown) return "UNKNOWN";
         if (myScore > enemyScore) return "VICTORY";
         if (myScore < enemyScore) return "DEFEAT";
         return "DRAW";

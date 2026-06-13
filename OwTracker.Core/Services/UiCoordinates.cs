@@ -287,7 +287,10 @@ public static class UiCoordinates
     // names at y≈310/410/510, stride 100. x starts at 70 to skip the button's left edge/highlight.
     // These give reliable hero NAMES (the Summary card names are unreadable italic), zipped by
     // order with the Summary cards' play-times.
-    public const int Personal_MaxHeroTabs = 5;
+    // Safety upper bound only — the real hero count is bounded by the ALL HEROES button's slot
+    // (allHeroesSlot). Was 5, which silently DROPPED the 6th hero of a 6-hero match (the count
+    // loop never reached slot 5); 8 covers the deepest sidebar without scrolling.
+    public const int Personal_MaxHeroTabs = 8;
     public static Rectangle Personal_HeroTab(int index) => new(45, 288 + index * 100, 300, 40);
 
     /// <summary>Point to click to select hero sub-tab <paramref name="index"/> in the sidebar.</summary>

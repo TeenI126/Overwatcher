@@ -262,7 +262,47 @@ public sealed class ScreenDetector
                 if (buf[i] > 180 && buf[i + 1] > 180 && buf[i + 2] > 180) white++;
             }
         }
-        return white >= 60;   // a hero NAME is 700+ white px; an empty pill / purple gradient → ~0
+        // A hero NAME is 666–1244 white px (measured across frames; even short names like Ashe/Ana
+        // are ≥666). An empty spacer pill reads ~0 normally, but up to ~168 on some frames — the old
+        // 60 threshold counted those as a phantom hero (a bogus "Unknown" slot). 300 sits in the
+        // wide gap (168 ↔ 666) so spacers are rejected without dropping any real name.
+        return white >= 300;
+    }
+
+    /// <summary>
+    /// True if a Personal-tab sidebar slot is the SELECTED tab — its pill background is the bright
+    /// cyan/blue highlight (~RGB 52,144,253) rather than the muted purple gradient (~78,82,135) of
+    /// an unselected tab. Used to confirm the ALL HEROES view actually landed before reading: if the
+    /// ALL HEROES click doesn't register, slot 0 stays selected and we'd read a single hero's view
+    /// (its name OCRs to garbage as a highlighted tab, and its stats aren't the combined totals).
+    /// </summary>
+    public bool IsSidebarSlotSelected(Bitmap b, int slot)
+    {
+        var roi  = UiCoordinates.Personal_HeroTab(slot);
+        var rect = Rectangle.Intersect(new Rectangle(0, 0, b.Width, b.Height), roi);
+        if (rect.IsEmpty) return false;
+
+        var data   = b.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        int stride = data.Stride;
+        var buf    = new byte[Math.Abs(stride) * rect.Height];
+        Marshal.Copy(data.Scan0, buf, 0, buf.Length);
+        b.UnlockBits(data);
+
+        // 32bppArgb little-endian → byte order is B,G,R,A. Highlight blue is bright and strongly
+        // blue-dominant (B≫R); the purple gradient has B≈135 (< 180) and a small B−R.
+        var blue = 0;
+        for (var y = 0; y < rect.Height; y++)
+        {
+            var rb = y * stride;
+            for (var x = 0; x < rect.Width; x++)
+            {
+                var i = rb + x * 4;
+                if (buf[i] > 180 && buf[i] - buf[i + 2] > 80) blue++;
+            }
+        }
+        // A selected pill fills most of the 300×40 ROI with blue (thousands of px); an unselected
+        // pill yields ~0. 2000 is a safe midpoint.
+        return blue >= 2000;
     }
 
     /// <summary>
