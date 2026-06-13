@@ -3,33 +3,227 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             mc:Ignorable="d"
-             d:DesignHeight="450" d:DesignWidth="800">
-    <Grid Margin="16">
+             xmlns:conv="clr-namespace:OwTracker.App.Converters"
+             xmlns:ctrl="clr-namespace:OwTracker.App.Controls"
+             mc:Ignorable="d" d:DesignHeight="700" d:DesignWidth="980"
+             Background="{StaticResource BgBrush}">
+    <UserControl.Resources>
+        <conv:ClockConverter x:Key="Clock" />
+        <conv:RoleToBrushConverter x:Key="RoleBrush" />
+        <conv:DoubleToStarConverter x:Key="Star" />
+        <conv:BoolToVisibilityConverter x:Key="BoolVis" />
+    </UserControl.Resources>
+
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-            <TextBlock Text="Sessions" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <Button Content="Refresh" Margin="16,0,0,0" Padding="12,4"
-                    Command="{Binding RefreshCommand}" />
-        </StackPanel>
+        <!-- ===== Header ===== -->
+        <Border Grid.Row="0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,18,22,14">
+            <StackPanel>
+                <DockPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="SESSIONS" Style="{StaticResource H1}" />
+                        <TextBlock Text="auto-grouped by 1h+ breaks" Style="{StaticResource Crumb}" VerticalAlignment="Bottom" Margin="12,0,0,3" />
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding SessionCount}" Style="{StaticResource KpiValue}" />
+                                <TextBlock Text="Sessions" Style="{StaticResource KpiKey}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding OwOpenText}" Style="{StaticResource KpiValue}" />
+                                <TextBlock Text="OW open" Style="{StaticResource KpiKey}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding InGamePercent, StringFormat={}{0}%}" Style="{StaticResource KpiValueAccent}" />
+                                <TextBlock Text="In games" Style="{StaticResource KpiKey}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource KpiTile}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding RoughCount}" Style="{StaticResource KpiValue}" />
+                                <TextBlock Text="Rough" Style="{StaticResource KpiKey}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </DockPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,16,0">
+                        <Rectangle Width="13" Height="13" Fill="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="in a game" Margin="7,0,0,0" Foreground="{StaticResource MutedBrush}" FontSize="11.5" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,16,0">
+                        <Rectangle Width="13" Height="13" Fill="{StaticResource Panel2Brush}" Stroke="{StaticResource LineBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="OW open · queue &amp; menus" Margin="7,0,0,0" Foreground="{StaticResource MutedBrush}" FontSize="11.5" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,16,0">
+                        <Rectangle Width="13" Height="13" Fill="{StaticResource WinBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="won" Margin="7,0,0,0" Foreground="{StaticResource MutedBrush}" FontSize="11.5" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Rectangle Width="13" Height="13" Fill="{StaticResource LossBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="lost" Margin="7,0,0,0" Foreground="{StaticResource MutedBrush}" FontSize="11.5" VerticalAlignment="Center" />
+                    </StackPanel>
+                </StackPanel>
+            </StackPanel>
+        </Border>
 
-        <DataGrid Grid.Row="1" ItemsSource="{Binding Sessions}" AutoGenerateColumns="False"
-                  IsReadOnly="True" CanUserSortColumns="True" HeadersVisibility="Column"
-                  GridLinesVisibility="Horizontal">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Start" Width="*"
-                                    Binding="{Binding SessionStart, StringFormat=g}" />
-                <DataGridTextColumn Header="End" Width="*"
-                                    Binding="{Binding SessionEnd, StringFormat=g}" />
-                <DataGridTextColumn Header="Active" Width="120"
-                                    Binding="{Binding ActiveDuration, StringFormat=hh\\:mm\\:ss}" />
-                <DataGridTextColumn Header="Total Open" Width="120"
-                                    Binding="{Binding TotalOpenDuration, StringFormat=hh\\:mm\\:ss}" />
-            </DataGrid.Columns>
-        </DataGrid>
+        <!-- ===== Session cards ===== -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="22,12,22,12">
+            <ItemsControl ItemsSource="{Binding Sessions}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="0,0,0,10" Background="{StaticResource PanelBrush}" BorderThickness="1" ctrl:NotchClip.TopRight="13">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Tilt}" Value="True">
+                                            <Setter Property="BorderBrush" Value="#66D8463A" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <!-- rail -->
+                                <Border Grid.Column="0" Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,1,0">
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                        <TextBlock Text="{Binding Number, StringFormat=#{0}}" Style="{StaticResource MonoMuted}" FontSize="10" HorizontalAlignment="Center" />
+                                        <TextBlock HorizontalAlignment="Center" FontFamily="{StaticResource NumFont}" FontSize="28" FontWeight="SemiBold" Foreground="{Binding WinRateBrush}">
+                                            <Run Text="{Binding WinRatePercent, Mode=OneWay}" /><Run Text="%" FontSize="14" />
+                                        </TextBlock>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="{Binding Wins, StringFormat={}{0}W}" Foreground="{StaticResource WinBrush}" FontFamily="{StaticResource NumFont}" FontSize="11" />
+                                            <TextBlock Text="{Binding Losses, StringFormat={}{0}L}" Foreground="{StaticResource LossBrush}" FontFamily="{StaticResource NumFont}" FontSize="11" Margin="6,0,0,0" />
+                                            <TextBlock Text="{Binding Draws, StringFormat={}{0}D}" Foreground="{StaticResource DrawBrush}" FontFamily="{StaticResource NumFont}" FontSize="11" Margin="6,0,0,0"
+                                                       Visibility="{Binding HasDraws, Converter={StaticResource BoolVis}}" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- body -->
+                                <StackPanel Grid.Column="1" Margin="16,12">
+                                    <!-- top -->
+                                    <DockPanel>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding DayLabel}" FontFamily="{StaticResource HeadFont}" FontWeight="SemiBold" FontSize="15" />
+                                            <TextBlock Text="{Binding TimeRange}" Style="{StaticResource MonoMuted}" FontSize="11.5" VerticalAlignment="Bottom" Margin="10,0,0,1" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Border Padding="8,3" Margin="0,0,8,0" Background="#1AD8463A" BorderBrush="#66D8463A" BorderThickness="1"
+                                                    Visibility="{Binding Tilt, Converter={StaticResource BoolVis}}">
+                                                <TextBlock Text="{Binding TiltBadge, StringFormat=⚠ {0}}" Foreground="{StaticResource LossBrush}" FontFamily="{StaticResource NumFont}" FontSize="10.5" />
+                                            </Border>
+                                            <Border Padding="8,3" Margin="0,0,8,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                                                <TextBlock Text="{Binding GamesText}" Style="{StaticResource MonoMuted}" FontSize="10.5" />
+                                            </Border>
+                                            <Border Padding="8,3" BorderThickness="1" Visibility="{Binding Comp, Converter={StaticResource BoolVis}}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="BorderBrush" Value="#59FF7A18" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding SrPositive}" Value="False">
+                                                                <Setter Property="BorderBrush" Value="#59D8463A" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="{Binding SrText}" FontFamily="{StaticResource NumFont}" FontSize="12" FontWeight="SemiBold">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{StaticResource WinBrush}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding SrPositive}" Value="False">
+                                                                    <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Border>
+                                        </StackPanel>
+                                    </DockPanel>
+
+                                    <!-- activity timeline -->
+                                    <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Margin="0,11,0,0">
+                                        <ctrl:ActivityTrack Height="22" Segments="{Binding Segments}" OpenStart="{Binding OpenStart}" OpenEnd="{Binding OpenEnd}" />
+                                    </Border>
+                                    <DockPanel Margin="0,5,0,0">
+                                        <TextBlock DockPanel.Dock="Right" Text="{Binding OpenEnd, StringFormat=h:mm tt · closed}" Style="{StaticResource MonoMuted}" FontSize="9" />
+                                        <TextBlock Text="{Binding OpenStart, StringFormat=h:mm tt · launch}" Style="{StaticResource MonoMuted}" FontSize="9" />
+                                    </DockPanel>
+
+                                    <!-- mid: active ratio + sparkline -->
+                                    <Grid Margin="0,11,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,18,0">
+                                            <Border Height="8" Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="{Binding ActiveRatio, Converter={StaticResource Star}}" />
+                                                        <ColumnDefinition Width="{Binding ActiveRatio, Converter={StaticResource Star}, ConverterParameter=rest}" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border Grid.Column="0" Background="{StaticResource AccentBrush}" />
+                                                </Grid>
+                                            </Border>
+                                            <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
+                                                <Rectangle Width="11" Height="11" Fill="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                                                <TextBlock Text="In games" Margin="6,0,0,0" Foreground="{StaticResource MutedBrush}" FontSize="11" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding InGameText}" Margin="5,0,0,0" Style="{StaticResource Mono}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                                <Rectangle Width="11" Height="11" Fill="{StaticResource Panel2Brush}" Stroke="{StaticResource LineBrush}" VerticalAlignment="Center" Margin="14,0,0,0" />
+                                                <TextBlock Text="OW open" Margin="6,0,0,0" Foreground="{StaticResource MutedBrush}" FontSize="11" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding OpenText}" Margin="5,0,0,0" Style="{StaticResource Mono}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding ActiveRatioText}" Margin="14,0,0,0" Foreground="{StaticResource AccentBrush}" FontFamily="{StaticResource NumFont}" FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <ctrl:Sparkline Width="132" Height="34" Series="{Binding Series}" HorizontalAlignment="Right" />
+                                            <TextBlock Text="win-rate trend" HorizontalAlignment="Right" Foreground="{StaticResource MutedBrush}" FontFamily="{StaticResource NumFont}" FontSize="8.5" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- heroes -->
+                                    <Border BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="0,1,0,0" Margin="0,11,0,0" Padding="0,10,0,0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="PLAYED" Style="{StaticResource MicroLabel}" VerticalAlignment="Center" Margin="0,0,14,0" />
+                                            <ItemsControl ItemsSource="{Binding HeroesTop}">
+                                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+                                                            <Ellipse Width="7" Height="7" VerticalAlignment="Center" Fill="{Binding Role, Converter={StaticResource RoleBrush}}" />
+                                                            <TextBlock Text="{Binding Hero}" Margin="6,0,0,0" FontSize="12" />
+                                                            <TextBlock Text="{Binding Time, Converter={StaticResource Clock}}" Margin="6,0,0,0" Style="{StaticResource MonoMuted}" FontSize="10.5" />
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <TextBlock Text="{Binding ExtraHeroes, StringFormat=+{0}}" Style="{StaticResource MonoMuted}" FontSize="11" VerticalAlignment="Center"
+                                                       Visibility="{Binding HasExtraHeroes, Converter={StaticResource BoolVis}}" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
     </Grid>
 </UserControl>

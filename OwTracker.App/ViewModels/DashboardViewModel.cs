@@ -3,8 +3,11 @@ using System.ComponentModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using OwTracker.App.Navigation;
+using OwTracker.Core.Models;
 using OwTracker.Core.Repositories.Interfaces;
 using OwTracker.Core.Services;
+using OwTracker.Core.Stats;
 
 namespace OwTracker.App.ViewModels;
 
@@ -13,37 +16,72 @@ public sealed partial class DashboardViewModel : ObservableObject
     private readonly IMatchRepository   _matchRepository;
     private readonly ISessionRepository _sessionRepository;
     private readonly HistoryScraper     _scraper;
+    private readonly NavigationService  _nav;
 
     public OverwatchWatcher Watcher { get; }
     public ObservableCollection<string> ScrapeLog { get; } = new();
 
+    /// <summary>Outcomes of the most recent matches (newest first) for the Recent Form strip.</summary>
+    public ObservableCollection<MatchOutcome> RecentForm { get; } = new();
+
     [ObservableProperty] private int      _matchCount;
     [ObservableProperty] private TimeSpan _totalActiveTime;
     [ObservableProperty] private bool     _isScraping;
-
-    /// <summary>When checked, the scrape ignores the "stop after 3 consecutive duplicates" rule and
-    /// walks the whole list (back-fill). Mirrors the CLI's --scrape-deep.</summary>
     [ObservableProperty] private bool     _ignoreDuplicates;
+
+    // ── Overview KPIs ──────────────────────────────────────────────────────
+    [ObservableProperty] private double   _winRate;
+    [ObservableProperty] private double   _trackedPlaytimeHours;
+    [ObservableProperty] private int      _todayWins;
+    [ObservableProperty] private int      _todayLosses;
+    [ObservableProperty] private int      _todayGames;
+
+    // ── Recent form / streak ───────────────────────────────────────────────
+    [ObservableProperty] private int          _recentWins;
+    [ObservableProperty] private int          _recentLosses;
+    [ObservableProperty] private MatchOutcome _streakOutcome = MatchOutcome.Unknown;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(StreakText))] private int _streakLength;
+
+    public string StreakText
+    {
+        get
+        {
+            if (StreakLength <= 0) return "No games yet";
+            var word = StreakOutcome switch
+            {
+                MatchOutcome.Win  => "Win",
+                MatchOutcome.Loss => "Loss",
+                MatchOutcome.Draw => "Draw",
+                _                 => "—",
+            };
+            return $"{StreakLength}-game {word} streak";
+        }
+    }
+
+    // ── Top performers ─────────────────────────────────────────────────────
+    [ObservableProperty] private HeroStat? _topHero;
+    [ObservableProperty] private MapStat?  _topMap;
+    [ObservableProperty] private HeroStat? _mostPlayed;
 
     public DashboardViewModel(
         OverwatchWatcher    watcher,
         IMatchRepository    matchRepository,
         ISessionRepository  sessionRepository,
-        HistoryScraper      scraper)
+        HistoryScraper      scraper,
+        NavigationService   nav)
     {
         Watcher            = watcher;
         _matchRepository   = matchRepository;
         _sessionRepository = sessionRepository;
         _scraper           = scraper;
+        _nav               = nav;
 
-        // Re-evaluate Start Scrape button whenever IsOwRunning changes.
         Watcher.PropertyChanged += OnWatcherPropertyChanged;
 
         _scraper.LogLine += line =>
             Application.Current?.Dispatcher.Invoke(() => ScrapeLog.Add(line));
     }
 
-    // Toggle command states whenever a scrape starts/stops.
     partial void OnIsScrapingChanged(bool value)
     {
         StartScrapeCommand.NotifyCanExecuteChanged();
@@ -51,6 +89,8 @@ public sealed partial class DashboardViewModel : ObservableObject
         ScrapeLastMatchCommand.NotifyCanExecuteChanged();
         DeleteHistoryCommand.NotifyCanExecuteChanged();
     }
+
+    partial void OnStreakOutcomeChanged(MatchOutcome value) => OnPropertyChanged(nameof(StreakText));
 
     private void OnWatcherPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -63,7 +103,6 @@ public sealed partial class DashboardViewModel : ObservableObject
             });
     }
 
-    /// <summary>Appends a line to the scrape log from any thread (used by App bootstrap).</summary>
     public void AddLog(string message) =>
         Application.Current?.Dispatcher.Invoke(() => ScrapeLog.Add(message));
 
@@ -71,11 +110,34 @@ public sealed partial class DashboardViewModel : ObservableObject
     {
         MatchCount      = await _matchRepository.CountAsync();
         TotalActiveTime = await _sessionRepository.GetTotalActiveTimeAsync();
+
+        var matches = await _matchRepository.GetAllWithDetailsAsync();
+
+        var overall = StatsService.Overall(matches);
+        WinRate              = overall.WinRate;
+        TrackedPlaytimeHours = Math.Round(overall.Time.TotalHours, 1);
+
+        var today  = StatsService.Today(matches, DateTime.Now);
+        TodayGames  = today.Games;
+        TodayWins   = today.Wins;
+        TodayLosses = today.Losses;
+
+        var form = StatsService.RecentForm(matches, 14);
+        RecentForm.Clear();
+        foreach (var o in form) RecentForm.Add(o);
+        RecentWins   = form.Count(o => o == MatchOutcome.Win);
+        RecentLosses = form.Count(o => o == MatchOutcome.Loss);
+
+        var streak = StatsService.CurrentStreak(matches);
+        StreakOutcome = streak.Type;
+        StreakLength  = streak.Length;
+
+        TopHero    = StatsService.TopHero(matches, minGames: 3);
+        TopMap     = StatsService.TopMap(matches, minGames: 3);
+        MostPlayed = StatsService.MostPlayedHero(matches);
     }
 
-    // Enabled when OW is running (anywhere on desktop) and we're not already scraping.
     private bool CanStartScrape() => Watcher.IsOwRunning && !IsScraping;
-
     private bool CanDeleteHistory() => !IsScraping;
 
     [RelayCommand(CanExecute = nameof(CanDeleteHistory))]
@@ -104,11 +166,9 @@ public sealed partial class DashboardViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStartScrape))]
     private Task StartScrapeAsync() => RunScrapeAsync(null);
 
-    /// <summary>Test helper: scrape only the most recent 10 games.</summary>
     [RelayCommand(CanExecute = nameof(CanStartScrape))]
     private Task ScrapeRecentAsync() => RunScrapeAsync(10);
 
-    /// <summary>Scrape only the most recent match (the top of the Game Reports list).</summary>
     [RelayCommand(CanExecute = nameof(CanStartScrape))]
     private Task ScrapeLastMatchAsync() => RunScrapeAsync(1);
 
@@ -130,5 +190,27 @@ public sealed partial class DashboardViewModel : ObservableObject
         {
             IsScraping = false;
         }
+    }
+
+    // ── Navigation (rail jumps + top-performer deep-links) ──────────────────
+    [RelayCommand] private void GoStoredGames() => _nav.Go(AppScreen.StoredGames);
+    [RelayCommand] private void GoHeatmap() => _nav.GoHeroMap(new HeroMapIntent(HeroMapView.Heatmap));
+
+    [RelayCommand]
+    private void OpenTopHero()
+    {
+        if (TopHero is not null) _nav.GoHeroMap(new HeroMapIntent(HeroMapView.ByHero, Hero: TopHero.Name));
+    }
+
+    [RelayCommand]
+    private void OpenTopMap()
+    {
+        if (TopMap is not null) _nav.GoHeroMap(new HeroMapIntent(HeroMapView.ByMap, Map: TopMap.Map));
+    }
+
+    [RelayCommand]
+    private void OpenMostPlayed()
+    {
+        if (MostPlayed is not null) _nav.GoHeroMap(new HeroMapIntent(HeroMapView.ByHero, Hero: MostPlayed.Name));
     }
 }

@@ -3,23 +3,39 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             mc:Ignorable="d"
-             d:DesignHeight="450" d:DesignWidth="800">
-    <StackPanel Margin="16" MaxWidth="520" HorizontalAlignment="Left">
-        <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
+             mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="900"
+             Background="{StaticResource BgBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-        <TextBlock Text="{Binding AutoAcceptThreshold, StringFormat='Auto-accept threshold: {0:P0}'}" />
-        <Slider Minimum="0.5" Maximum="1.0" Value="{Binding AutoAcceptThreshold}"
-                TickFrequency="0.01" IsSnapToTickEnabled="True" Margin="0,4,0,16" />
+        <Border Grid.Row="0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,18,22,16">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="SETTINGS" Style="{StaticResource H1}" />
+                <TextBlock Text="self-training thresholds &amp; data" Style="{StaticResource Crumb}" VerticalAlignment="Bottom" Margin="12,0,0,3" />
+            </StackPanel>
+        </Border>
 
-        <TextBlock Text="{Binding ReviewThreshold, StringFormat='Review threshold: {0:P0}'}" />
-        <Slider Minimum="0.3" Maximum="0.97" Value="{Binding ReviewThreshold}"
-                TickFrequency="0.01" IsSnapToTickEnabled="True" Margin="0,4,0,16" />
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="22,16,22,22">
+            <Border Style="{StaticResource Panel}" MaxWidth="560" HorizontalAlignment="Left">
+                <StackPanel>
+                    <TextBlock Text="{Binding AutoAcceptThreshold, StringFormat='Auto-accept threshold: {0:P0}'}" />
+                    <Slider Minimum="0.5" Maximum="1.0" Value="{Binding AutoAcceptThreshold}"
+                            TickFrequency="0.01" IsSnapToTickEnabled="True" Margin="0,6,0,18" />
 
-        <TextBlock Text="Retrain batch size" />
-        <TextBox Text="{Binding RetrainBatchSize}" Width="100" HorizontalAlignment="Left" Margin="0,4,0,16" />
+                    <TextBlock Text="{Binding ReviewThreshold, StringFormat='Review threshold: {0:P0}'}" />
+                    <Slider Minimum="0.3" Maximum="0.97" Value="{Binding ReviewThreshold}"
+                            TickFrequency="0.01" IsSnapToTickEnabled="True" Margin="0,6,0,18" />
 
-        <Button Content="Open Training Data Folder" Padding="12,6" HorizontalAlignment="Left"
-                Command="{Binding OpenTrainingDataFolderCommand}" />
-    </StackPanel>
+                    <TextBlock Text="Retrain batch size" />
+                    <TextBox Style="{StaticResource SearchBox}" Text="{Binding RetrainBatchSize}" Width="100" HorizontalAlignment="Left" Margin="0,6,0,18" />
+
+                    <Button Content="Open Training Data Folder" HorizontalAlignment="Left"
+                            Command="{Binding OpenTrainingDataFolderCommand}" />
+                </StackPanel>
+            </Border>
+        </ScrollViewer>
+    </Grid>
 </UserControl>

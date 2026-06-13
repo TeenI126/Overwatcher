@@ -28,6 +28,66 @@ public static class MapRoster
         "Hanaoka", "Throne of Anubis",
     };
 
+    /// <summary>The six objective/mode types, in roster order. Matches the redesign's mode filter.</summary>
+    public static readonly IReadOnlyList<string> Modes = new[]
+    {
+        "Control", "Hybrid", "Escort", "Push", "Flashpoint", "Clash",
+    };
+
+    /// <summary>Canonical map → objective mode ("Control"/"Hybrid"/"Escort"/"Push"/"Flashpoint"/"Clash").</summary>
+    private static readonly Dictionary<string, string> MapMode = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Antarctic Peninsula"] = "Control", ["Busan"] = "Control", ["Ilios"] = "Control",
+        ["Lijiang Tower"] = "Control", ["Nepal"] = "Control", ["Oasis"] = "Control", ["Samoa"] = "Control",
+
+        ["Circuit Royal"] = "Escort", ["Dorado"] = "Escort", ["Havana"] = "Escort",
+        ["Junkertown"] = "Escort", ["Rialto"] = "Escort", ["Route 66"] = "Escort",
+        ["Shambali Monastery"] = "Escort", ["Watchpoint: Gibraltar"] = "Escort",
+
+        ["Blizzard World"] = "Hybrid", ["Eichenwalde"] = "Hybrid", ["Hollywood"] = "Hybrid",
+        ["King's Row"] = "Hybrid", ["Midtown"] = "Hybrid", ["Numbani"] = "Hybrid", ["Paraíso"] = "Hybrid",
+
+        ["Colosseo"] = "Push", ["Esperança"] = "Push", ["New Queen Street"] = "Push", ["Runasapi"] = "Push",
+
+        ["New Junk City"] = "Flashpoint", ["Suravasa"] = "Flashpoint", ["Aatlis"] = "Flashpoint",
+
+        ["Hanaoka"] = "Clash", ["Throne of Anubis"] = "Clash",
+    };
+
+    /// <summary>
+    /// Resolves the canonical mode for a match. Prefers normalising the stored raw game-mode string
+    /// (e.g. "ESCORT" → "Escort"); falls back to the map → mode lookup when the field is blank or
+    /// unrecognised. Returns "" if nothing resolves.
+    /// </summary>
+    public static string ResolveMode(string? mapName, string? rawGameMode)
+    {
+        var fromRaw = NormalizeMode(rawGameMode);
+        if (fromRaw.Length > 0) return fromRaw;
+        return mapName is not null && MapMode.TryGetValue(mapName, out var m) ? m : string.Empty;
+    }
+
+    /// <summary>Map name → canonical mode, or "" if the map is unknown.</summary>
+    public static string ModeOf(string? mapName) =>
+        mapName is not null && MapMode.TryGetValue(mapName, out var m) ? m : string.Empty;
+
+    /// <summary>Normalises a raw OCR game-mode token ("ESCORT", "control", "FLASH POINT") to a
+    /// canonical mode, or "" if it doesn't look like one of the six modes.</summary>
+    private static string NormalizeMode(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        var n = Regex.Replace(raw.ToUpperInvariant(), "[^A-Z]", "");
+        return n switch
+        {
+            "CONTROL"    => "Control",
+            "HYBRID"     => "Hybrid",
+            "ESCORT"     => "Escort",
+            "PUSH"       => "Push",
+            "FLASHPOINT" => "Flashpoint",
+            "CLASH"      => "Clash",
+            _            => string.Empty,
+        };
+    }
+
     private static readonly (string Canonical, string Norm)[] Normalised =
         Maps.Select(m => (m, Norm(m))).ToArray();
 

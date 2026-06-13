@@ -4,186 +4,345 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:conv="clr-namespace:OwTracker.App.Converters"
-             mc:Ignorable="d"
-             d:DesignHeight="500" d:DesignWidth="1000">
+             xmlns:ctrl="clr-namespace:OwTracker.App.Controls"
+             mc:Ignorable="d" d:DesignHeight="700" d:DesignWidth="980"
+             Background="{StaticResource BgBrush}">
     <UserControl.Resources>
-        <!-- Must be declared per-UserControl: a UserControl StaticResource lookup can't reach the
-             parent Window's resources (see CLAUDE.md). -->
-        <BooleanToVisibilityConverter x:Key="BoolToVis" />
-        <conv:InverseBoolToVisibilityConverter x:Key="InvBoolToVis" />
+        <conv:PercentConverter x:Key="Percent" />
+        <conv:ClockConverter x:Key="Clock" />
+        <conv:OutcomeToBrushConverter x:Key="OutcomeBrush" />
+        <conv:OutcomeToTextConverter x:Key="OutcomeText" />
+        <conv:RoleToBrushConverter x:Key="RoleBrush" />
+        <conv:ModeToBrushConverter x:Key="ModeBrush" />
+        <conv:BoolToVisibilityConverter x:Key="BoolVis" />
 
-        <!-- Shared styling for the per-team player grids: highlight my own row. -->
-        <Style x:Key="TeamRowStyle" TargetType="DataGridRow">
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsMe}" Value="True">
-                    <Setter Property="Background" Value="#FF2D4A6B" />
-                    <Setter Property="FontWeight" Value="SemiBold" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
+        <!-- Filter dropdown option: show the friendly label -->
+        <DataTemplate x:Key="FilterOptionTemplate">
+            <TextBlock Text="{Binding Label}" Foreground="{StaticResource TextBrush}" />
+        </DataTemplate>
+
+        <!-- Scoreboard row -->
+        <DataTemplate x:Key="ScoreRowTemplate">
+            <Grid Margin="0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="38" />
+                    <ColumnDefinition Width="38" />
+                    <ColumnDefinition Width="38" />
+                    <ColumnDefinition Width="56" />
+                    <ColumnDefinition Width="56" />
+                    <ColumnDefinition Width="56" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <TextBlock Text="★" Foreground="{StaticResource AccentBrush}" Margin="0,0,5,0"
+                               Visibility="{Binding IsMe, Converter={StaticResource BoolVis}}" />
+                    <Ellipse Width="7" Height="7" VerticalAlignment="Center"
+                             Fill="{Binding Role, Converter={StaticResource RoleBrush}}" />
+                    <TextBlock Text="{Binding Hero}" Margin="8,0,0,0" FontFamily="{StaticResource BodyFont}" FontSize="11.5">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMe}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding Elim}" Style="{StaticResource Mono}" TextAlignment="Right" />
+                <TextBlock Grid.Column="2" Text="{Binding Assist}" Style="{StaticResource Mono}" TextAlignment="Right" />
+                <TextBlock Grid.Column="3" Text="{Binding Death}" Style="{StaticResource Mono}" TextAlignment="Right" />
+                <TextBlock Grid.Column="4" Text="{Binding Dmg, StringFormat=N0}" Style="{StaticResource Mono}" TextAlignment="Right" />
+                <TextBlock Grid.Column="5" Text="{Binding Heal, StringFormat=N0}" Style="{StaticResource Mono}" TextAlignment="Right" />
+                <TextBlock Grid.Column="6" Text="{Binding Mit, StringFormat=N0}" Style="{StaticResource Mono}" TextAlignment="Right" />
+            </Grid>
+        </DataTemplate>
+
+        <ControlTemplate x:Key="ScoreHeader">
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="38" />
+                    <ColumnDefinition Width="38" />
+                    <ColumnDefinition Width="38" />
+                    <ColumnDefinition Width="56" />
+                    <ColumnDefinition Width="56" />
+                    <ColumnDefinition Width="56" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="HERO" Style="{StaticResource MicroLabel}" />
+                <TextBlock Grid.Column="1" Text="E" Style="{StaticResource MicroLabel}" TextAlignment="Right" />
+                <TextBlock Grid.Column="2" Text="A" Style="{StaticResource MicroLabel}" TextAlignment="Right" />
+                <TextBlock Grid.Column="3" Text="D" Style="{StaticResource MicroLabel}" TextAlignment="Right" />
+                <TextBlock Grid.Column="4" Text="DMG" Style="{StaticResource MicroLabel}" TextAlignment="Right" />
+                <TextBlock Grid.Column="5" Text="HEAL" Style="{StaticResource MicroLabel}" TextAlignment="Right" />
+                <TextBlock Grid.Column="6" Text="MIT" Style="{StaticResource MicroLabel}" TextAlignment="Right" />
+            </Grid>
+        </ControlTemplate>
     </UserControl.Resources>
 
-    <Grid Margin="16">
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-            <TextBlock Text="Match History" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <Button Content="Refresh" Margin="16,0,0,0" Padding="12,4"
-                    Command="{Binding RefreshCommand}" />
-            <TextBlock Text="{Binding Matches.Count, StringFormat={}{0} matches}"
-                       Margin="16,0,0,0" VerticalAlignment="Center" Opacity="0.6" />
-        </StackPanel>
-
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="1.1*" MinWidth="380" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="1.4*" MinWidth="420" />
-            </Grid.ColumnDefinitions>
-
-            <!-- Master: the match list -->
-            <DataGrid Grid.Column="0" ItemsSource="{Binding Matches}"
-                      SelectedItem="{Binding SelectedMatch, Mode=TwoWay}"
-                      AutoGenerateColumns="False" IsReadOnly="True"
-                      CanUserSortColumns="True" HeadersVisibility="Column"
-                      SelectionMode="Single" GridLinesVisibility="Horizontal">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Date" Width="150"
-                                        Binding="{Binding MatchDatetime, StringFormat=g}" />
-                    <DataGridTextColumn Header="Map" Width="*" Binding="{Binding MapName}" />
-                    <DataGridTextColumn Header="Outcome" Width="80" Binding="{Binding Outcome}" />
-                    <DataGridTextColumn Header="Score" Width="70">
-                        <DataGridTextColumn.Binding>
-                            <MultiBinding StringFormat="{}{0}-{1}">
-                                <Binding Path="MyTeamScore" />
-                                <Binding Path="EnemyTeamScore" />
-                            </MultiBinding>
-                        </DataGridTextColumn.Binding>
-                    </DataGridTextColumn>
-                </DataGrid.Columns>
-            </DataGrid>
-
-            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center"
-                          VerticalAlignment="Stretch" Background="Transparent" />
-
-            <!-- Detail: everything captured for the selected match -->
-            <Border Grid.Column="2" BorderBrush="#33000000" BorderThickness="1"
-                    CornerRadius="4" Padding="14">
-                <Grid>
-                    <!-- Placeholder when nothing is selected -->
-                    <TextBlock Text="Select a match to see all captured details."
-                               Opacity="0.5" VerticalAlignment="Center" HorizontalAlignment="Center"
-                               Visibility="{Binding HasDetail, Converter={StaticResource InvBoolToVis}}" />
-
-                    <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  Visibility="{Binding HasDetail, Converter={StaticResource BoolToVis}}">
-                        <StackPanel DataContext="{Binding Detail}">
-                            <!-- Header -->
-                            <TextBlock Text="{Binding MapName}" FontSize="22" FontWeight="Bold" />
-                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                                <TextBlock Text="{Binding Outcome}" FontSize="14" FontWeight="SemiBold" />
-                                <TextBlock Margin="10,0,0,0" FontSize="14">
-                                    <Run Text="{Binding MyTeamScore, Mode=OneWay}" />
-                                    <Run Text="–" />
-                                    <Run Text="{Binding EnemyTeamScore, Mode=OneWay}" />
-                                </TextBlock>
+        <!-- ===== Header ===== -->
+        <Border Grid.Row="0" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,18,22,14">
+            <StackPanel>
+                <DockPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="STORED GAMES" Style="{StaticResource H1}" />
+                        <TextBlock VerticalAlignment="Bottom" Margin="12,0,0,3" Style="{StaticResource Crumb}">
+                            <Run Text="{Binding ShownCount, Mode=OneWay}" /><Run Text=" of " /><Run Text="{Binding TotalCount, Mode=OneWay}" /><Run Text=" matches" />
+                        </TextBlock>
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding ShownCount}" Style="{StaticResource KpiValue}" />
+                                <TextBlock Text="Shown" Style="{StaticResource KpiKey}" />
                             </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource KpiValueAccent}"
+                                           Text="{Binding ShownWinRate, Converter={StaticResource Percent}, ConverterParameter=sign}" />
+                                <TextBlock Text="Win rate" Style="{StaticResource KpiKey}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource KpiTile}">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource KpiValue}" Foreground="{StaticResource WinBrush}"
+                                               Text="{Binding ShownWins, StringFormat={}{0}W}" />
+                                    <TextBlock Style="{StaticResource KpiValue}" Foreground="{StaticResource LossBrush}" Margin="6,0,0,0"
+                                               Text="{Binding ShownLosses, StringFormat={}{0}L}" />
+                                </StackPanel>
+                                <TextBlock Text="Record" Style="{StaticResource KpiKey}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </DockPanel>
 
-                            <Grid Margin="0,8,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Date" Opacity="0.6" Margin="0,1,16,1" />
-                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding MatchDatetime, StringFormat=f}" Margin="0,1" />
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Length" Opacity="0.6" Margin="0,1,16,1" />
-                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding GameLength, StringFormat=mm\\:ss}" Margin="0,1" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Mode" Opacity="0.6" Margin="0,1,16,1" />
-                                <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,1">
-                                    <Run Text="{Binding GameMode, Mode=OneWay}" />
-                                    <Run Text="·" />
-                                    <Run Text="{Binding RankingMode, Mode=OneWay}" />
-                                    <Run Text="·" />
-                                    <Run Text="{Binding QueueType, Mode=OneWay}" />
-                                </TextBlock>
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Scraped" Opacity="0.6" Margin="0,1,16,1" />
-                                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ScrapedAt, StringFormat=g}" Opacity="0.7" Margin="0,1" />
-                            </Grid>
+                <!-- Filter bar -->
+                <WrapPanel Margin="0,14,0,0">
+                    <ComboBox Style="{StaticResource HudCombo}" ItemContainerStyle="{StaticResource HudComboItem}"
+                              Width="150" Margin="0,0,8,8" ItemTemplate="{StaticResource FilterOptionTemplate}" SelectedValuePath="Value"
+                              ItemsSource="{Binding GameModeOptions}" SelectedValue="{Binding GameModeFilter}" />
+                    <ComboBox Style="{StaticResource HudCombo}" ItemContainerStyle="{StaticResource HudComboItem}"
+                              Width="138" Margin="0,0,8,8" ItemTemplate="{StaticResource FilterOptionTemplate}" SelectedValuePath="Value"
+                              ItemsSource="{Binding MapTypeOptions}" SelectedValue="{Binding MapTypeFilter}" />
+                    <ComboBox Style="{StaticResource HudCombo}" ItemContainerStyle="{StaticResource HudComboItem}"
+                              Width="160" Margin="0,0,8,8" ItemTemplate="{StaticResource FilterOptionTemplate}" SelectedValuePath="Value"
+                              ItemsSource="{Binding MapOptions}" SelectedValue="{Binding MapFilter}" />
 
-                            <!-- My team -->
-                            <TextBlock Text="My Team" FontWeight="SemiBold" Margin="0,14,0,4" />
-                            <DataGrid ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=DataContext.MyTeam}"
-                                      AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
-                                      CanUserSortColumns="False" GridLinesVisibility="Horizontal"
-                                      RowStyle="{StaticResource TeamRowStyle}">
-                                <DataGrid.Columns>
-                                    <DataGridTemplateColumn Header="" Width="22">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="★" HorizontalAlignment="Center"
-                                                           Visibility="{Binding IsMe, Converter={StaticResource BoolToVis}}" />
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <DataGridTextColumn Header="Hero" Width="*" Binding="{Binding EndingHero}" />
-                                    <DataGridTextColumn Header="E" Width="40" Binding="{Binding Eliminations}" />
-                                    <DataGridTextColumn Header="A" Width="40" Binding="{Binding Assists}" />
-                                    <DataGridTextColumn Header="D" Width="40" Binding="{Binding Deaths}" />
-                                    <DataGridTextColumn Header="DMG" Width="64" Binding="{Binding DamageDealt}" />
-                                    <DataGridTextColumn Header="Heal" Width="64" Binding="{Binding HealingDone}" />
-                                    <DataGridTextColumn Header="Mit" Width="64" Binding="{Binding DamageMitigated}" />
-                                </DataGrid.Columns>
-                            </DataGrid>
+                    <Border Width="1" Background="{StaticResource LineBrush}" Margin="2,0,8,8" />
 
-                            <!-- Enemy team -->
-                            <TextBlock Text="Enemy Team" FontWeight="SemiBold" Margin="0,14,0,4" />
-                            <DataGrid ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=DataContext.EnemyTeam}"
-                                      AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
-                                      CanUserSortColumns="False" GridLinesVisibility="Horizontal">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Hero" Width="*" Binding="{Binding EndingHero}" />
-                                    <DataGridTextColumn Header="E" Width="40" Binding="{Binding Eliminations}" />
-                                    <DataGridTextColumn Header="A" Width="40" Binding="{Binding Assists}" />
-                                    <DataGridTextColumn Header="D" Width="40" Binding="{Binding Deaths}" />
-                                    <DataGridTextColumn Header="DMG" Width="64" Binding="{Binding DamageDealt}" />
-                                    <DataGridTextColumn Header="Heal" Width="64" Binding="{Binding HealingDone}" />
-                                    <DataGridTextColumn Header="Mit" Width="64" Binding="{Binding DamageMitigated}" />
-                                </DataGrid.Columns>
-                            </DataGrid>
+                    <ToggleButton Style="{StaticResource PillToggle}" Content="Win" Margin="0,0,6,8" IsChecked="{Binding WinOnly}" />
+                    <ToggleButton Style="{StaticResource PillToggle}" Content="Loss" Margin="0,0,6,8" IsChecked="{Binding LossOnly}" />
+                    <ToggleButton Style="{StaticResource PillToggle}" Content="Tank" Margin="0,0,6,8" IsChecked="{Binding TankOnly}" />
+                    <ToggleButton Style="{StaticResource PillToggle}" Content="Damage" Margin="0,0,6,8" IsChecked="{Binding DamageOnly}" />
+                    <ToggleButton Style="{StaticResource PillToggle}" Content="Support" Margin="0,0,6,8" IsChecked="{Binding SupportOnly}" />
+                    <Button Style="{StaticResource ClearBtn}" Content="Clear" Margin="0,0,8,8"
+                            Command="{Binding ClearFiltersCommand}"
+                            Visibility="{Binding AnyFilterActive, Converter={StaticResource BoolVis}}" />
 
-                            <!-- My hero playtimes -->
-                            <TextBlock Text="My Heroes (playtime)" FontWeight="SemiBold" Margin="0,14,0,4" />
-                            <ItemsControl ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=DataContext.MyHeroes}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Margin="0,1">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="{Binding HeroName}" />
-                                            <TextBlock Grid.Column="1" Text="{Binding TimePlayed, StringFormat=mm\\:ss}" Opacity="0.8" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <TextBlock Text="(none captured)" Opacity="0.5" Margin="0,1"
-                                       Visibility="{Binding RelativeSource={RelativeSource AncestorType=UserControl}, Path=DataContext.HasMyHeroes,
-                                                    Converter={StaticResource InvBoolToVis}}" />
+                    <ComboBox Style="{StaticResource HudCombo}" ItemContainerStyle="{StaticResource HudComboItem}"
+                              Width="150" Margin="0,0,0,8" ItemTemplate="{StaticResource FilterOptionTemplate}" SelectedValuePath="Value"
+                              ItemsSource="{Binding SortOptions}" SelectedValue="{Binding SortKey}" />
+                    <Button Style="{StaticResource DirBtn}" Margin="0,0,8,8" Content="{Binding SortDirectionGlyph}"
+                            Command="{Binding ToggleSortDirectionCommand}" />
+
+                    <TextBox Style="{StaticResource SearchBox}" Width="170" Margin="0,0,0,8"
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- ===== Card list ===== -->
+        <ListBox Grid.Row="1" ItemsSource="{Binding MatchesView}" Style="{StaticResource PlainList}"
+                 Margin="22,12,22,12" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.CanContentScroll="False">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Border Margin="0,0,0,9" Background="{StaticResource PanelBrush}" BorderThickness="1" ctrl:NotchClip.TopRight="12">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel>
+                            <!-- Collapsed row -->
+                            <ToggleButton Style="{StaticResource RowToggle}" IsChecked="{Binding IsExpanded}">
+                                <Grid Margin="0,11,14,11">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="4" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="22" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Rectangle Grid.Column="0" Fill="{Binding Outcome, Converter={StaticResource OutcomeBrush}}" />
+
+                                    <!-- hero stack -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                                        <ItemsControl ItemsSource="{Binding HeroStack}">
+                                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <ctrl:HeroChip HeroName="{Binding Name}" Role="{Binding Role}" ChipSize="42" Margin="0,0,4,0" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Text="{Binding ExtraHeroes, StringFormat=+{0}}" Style="{StaticResource MonoMuted}"
+                                                   VerticalAlignment="Center" Margin="2,0,0,0"
+                                                   Visibility="{Binding HasExtraHeroes, Converter={StaticResource BoolVis}}" />
+                                    </StackPanel>
+
+                                    <!-- meta -->
+                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="14,0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Map}" Style="{StaticResource MapName}" FontSize="14" />
+                                            <Border BorderThickness="1" Padding="6,2" Margin="9,0,0,0" VerticalAlignment="Center"
+                                                    BorderBrush="{Binding Mode, Converter={StaticResource ModeBrush}}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Rectangle Width="6" Height="6" VerticalAlignment="Center" Fill="{Binding Mode, Converter={StaticResource ModeBrush}}" />
+                                                    <TextBlock Text="{Binding Mode}" Margin="5,0,0,0" FontFamily="{StaticResource NumFont}" FontSize="9.5"
+                                                               Foreground="{Binding Mode, Converter={StaticResource ModeBrush}}" />
+                                                </StackPanel>
+                                            </Border>
+                                            <Border Background="{StaticResource LineSoftBrush}" Padding="6,2" Margin="7,0,0,0" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding RankTag}" FontFamily="{StaticResource NumFont}" FontSize="9.5" Foreground="{StaticResource MutedBrush}" />
+                                            </Border>
+                                        </StackPanel>
+                                        <ItemsControl ItemsSource="{Binding Heroes}" Margin="0,5,0,0">
+                                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
+                                                        <Ellipse Width="7" Height="7" VerticalAlignment="Center" Fill="{Binding Role, Converter={StaticResource RoleBrush}}" />
+                                                        <TextBlock Text="{Binding Name}" Margin="6,0,0,0" FontSize="11.5" Foreground="{StaticResource TextBrush}" Opacity="0.85" />
+                                                        <TextBlock Text="{Binding Time, Converter={StaticResource Clock}}" Margin="6,0,0,0"
+                                                                   FontFamily="{StaticResource NumFont}" FontSize="10.5" Foreground="{StaticResource MutedBrush}" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+
+                                    <!-- result -->
+                                    <StackPanel Grid.Column="3" VerticalAlignment="Center" MinWidth="70" Margin="6,0">
+                                        <TextBlock Text="{Binding Outcome, Converter={StaticResource OutcomeText}}" HorizontalAlignment="Center"
+                                                   FontFamily="{StaticResource HeadFont}" FontWeight="Bold" FontSize="12"
+                                                   Foreground="{Binding Outcome, Converter={StaticResource OutcomeBrush}}" />
+                                        <TextBlock Text="{Binding ScoreText}" HorizontalAlignment="Center" FontFamily="{StaticResource NumFont}" FontSize="20" FontWeight="SemiBold" />
+                                    </StackPanel>
+
+                                    <!-- stat set -->
+                                    <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0">
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock HorizontalAlignment="Right" FontFamily="{StaticResource NumFont}" FontSize="14" FontWeight="SemiBold">
+                                                <Run Text="{Binding Elim, Mode=OneWay}" /><Run Text=" / " Foreground="{StaticResource MutedBrush}" /><Run Text="{Binding Assist, Mode=OneWay}" /><Run Text=" / " Foreground="{StaticResource MutedBrush}" /><Run Text="{Binding Death, Mode=OneWay}" />
+                                            </TextBlock>
+                                            <TextBlock Text="E / A / D" Style="{StaticResource MicroLabel}" TextAlignment="Right" />
+                                        </StackPanel>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding KeyStatValue, StringFormat=N0}" HorizontalAlignment="Right" FontFamily="{StaticResource NumFont}" FontSize="14" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding KeyStatLabel}" Style="{StaticResource MicroLabel}" TextAlignment="Right" />
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <!-- right -->
+                                    <StackPanel Grid.Column="5" VerticalAlignment="Center" MinWidth="86" Margin="10,0">
+                                        <TextBlock Text="{Binding RelativeTime}" Foreground="{StaticResource MutedBrush}" FontSize="11.5" TextAlignment="Right" />
+                                        <TextBlock Text="{Binding Length, Converter={StaticResource Clock}}" Style="{StaticResource MonoMuted}" TextAlignment="Right" Margin="0,3,0,0" />
+                                        <TextBlock Text="{Binding SrText}" TextAlignment="Right" Margin="0,3,0,0" FontFamily="{StaticResource NumFont}" FontSize="12.5" FontWeight="SemiBold"
+                                                   Visibility="{Binding IsCompetitive, Converter={StaticResource BoolVis}}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{StaticResource WinBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding SrPositive}" Value="False">
+                                                            <Setter Property="Foreground" Value="{StaticResource LossBrush}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </StackPanel>
+
+                                    <!-- chevron -->
+                                    <TextBlock Grid.Column="6" Text="⌄" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="14" RenderTransformOrigin="0.5,0.5">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                                        <Setter Property="RenderTransform"><Setter.Value><RotateTransform Angle="180" /></Setter.Value></Setter>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </ToggleButton>
+
+                            <!-- Expanded detail -->
+                            <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="16,14"
+                                    Visibility="{Binding IsExpanded, Converter={StaticResource BoolVis}}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="18" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="MY TEAM" Style="{StaticResource MicroLabel}" Margin="0,0,0,8" />
+                                            <Control Template="{StaticResource ScoreHeader}" />
+                                            <ItemsControl ItemsSource="{Binding MyTeam}" ItemTemplate="{StaticResource ScoreRowTemplate}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="ENEMY TEAM" Style="{StaticResource MicroLabel}" Margin="0,0,0,8" />
+                                            <Control Template="{StaticResource ScoreHeader}" />
+                                            <ItemsControl ItemsSource="{Binding EnemyTeam}" ItemTemplate="{StaticResource ScoreRowTemplate}" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,12,0,0" Padding="0,12,0,0"
+                                            Visibility="{Binding HasMyHeroes, Converter={StaticResource BoolVis}}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="MY HEROES" Style="{StaticResource MicroLabel}" VerticalAlignment="Center" Margin="0,0,18,0" />
+                                            <ItemsControl ItemsSource="{Binding MyHeroes}">
+                                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
+                                                            <Ellipse Width="7" Height="7" VerticalAlignment="Center" Fill="{Binding Role, Converter={StaticResource RoleBrush}}" />
+                                                            <TextBlock Text="{Binding Name}" Margin="7,0,0,0" FontSize="12" />
+                                                            <TextBlock Text="{Binding Time, Converter={StaticResource Clock}}" Margin="7,0,0,0"
+                                                                       FontFamily="{StaticResource NumFont}" FontSize="10.5" Foreground="{StaticResource MutedBrush}" />
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
-                    </ScrollViewer>
-                </Grid>
-            </Border>
-        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
     </Grid>
 </UserControl>

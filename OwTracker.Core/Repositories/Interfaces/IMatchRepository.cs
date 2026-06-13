@@ -12,6 +12,13 @@ public interface IMatchRepository
 
     Task<IReadOnlyList<MatchRecord>> GetAllAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// All matches eagerly loaded with every player and the local player's per-hero playtimes.
+    /// Used by the card list / stats / sessions screens, which need hero playtimes (primary-hero
+    /// attribution, hero stacks) that <see cref="GetAllAsync"/> deliberately omits.
+    /// </summary>
+    Task<IReadOnlyList<MatchRecord>> GetAllWithDetailsAsync(CancellationToken ct = default);
+
     Task<MatchRecord?> GetByIdAsync(int id, CancellationToken ct = default);
 
     Task<int> CountAsync(CancellationToken ct = default);
