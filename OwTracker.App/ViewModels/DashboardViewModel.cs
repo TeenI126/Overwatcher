@@ -28,6 +28,7 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private TimeSpan _totalActiveTime;
     [ObservableProperty] private bool     _isScraping;
     [ObservableProperty] private bool     _ignoreDuplicates;
+    [ObservableProperty] private bool     _overwriteOnDuplicate;
 
     // ── Overview KPIs ──────────────────────────────────────────────────────
     [ObservableProperty] private double   _winRate;
@@ -179,7 +180,8 @@ public sealed partial class DashboardViewModel : ObservableObject
 
         try
         {
-            var result = await _scraper.ScrapeAsync(maxGames: maxGames, stopOnDuplicates: !IgnoreDuplicates);
+            var result = await _scraper.ScrapeAsync(
+                maxGames: maxGames, stopOnDuplicates: !IgnoreDuplicates, overwrite: OverwriteOnDuplicate);
             ScrapeLog.Add(result.Success
                 ? $"[{DateTime.Now:HH:mm:ss}] Completed — {result.NewRecords} new, {result.SkippedDuplicates} duplicates."
                 : $"[{DateTime.Now:HH:mm:ss}] Failed: {result.ErrorMessage}");

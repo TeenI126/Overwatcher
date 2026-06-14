@@ -72,14 +72,20 @@ public sealed class HistoryScraper
     /// Personal per game, same as a normal scrape). It also saves each Teams frame to the debug
     /// folder for calibration. Slower (the per-game re-navigation grows down the list).
     /// </param>
+    /// <param name="overwrite">
+    /// When an already-stored match is re-read, replace the stored row with the fresh data instead
+    /// of leaving it untouched. <c>null</c> (default) ties it to the scrape kind — a deep scrape
+    /// overwrites, a normal scrape does not — preserving the CLI behaviour; the dashboard passes an
+    /// explicit value via its "overwrite on duplicate" toggle.
+    /// </param>
     public async Task<ScrapeResult> ScrapeAsync(
         CancellationToken ct = default, int? maxGames = null, bool stopOnDuplicates = true,
-        int startIndex = 0)
+        int startIndex = 0, bool? overwrite = null)
     {
         startIndex   = Math.Clamp(startIndex, 0, MaxGames - 1);
         var endIndex = Math.Min(startIndex + (maxGames ?? MaxGames), MaxGames);
         _saveEveryTeamsFrame = !stopOnDuplicates;   // deep scrape: capture all Teams frames for calibration
-        _overwriteExisting   = !stopOnDuplicates;   // deep scrape: re-read overwrites the stored row
+        _overwriteExisting   = overwrite ?? !stopOnDuplicates;   // explicit, else tied to deep scrape
 
         // Fresh log file for each scrape run.
         try { File.WriteAllText(_logFile,
@@ -170,7 +176,10 @@ public sealed class HistoryScraper
                     try
                     {
                         // Dump the RAW text so we can see/calibrate when the parse is UNKNOWN.
-                        var rawQueue = _ocr.ReadRegionBlock(s, queueRoi)
+                        // Show both the plain 3× read and the saturated-text read (which resolves the
+                        // coloured ranking word) so the log reflects what ParseQueue actually sees.
+                        var rawQueue = (_ocr.ReadRegionBlock(s, queueRoi, 3) + "  sat=" +
+                                        _ocr.ReadRegionSaturatedText(s, queueRoi))
                                            .Replace("\r", " ").Replace("\n", " ").Trim();
                         queue = _ocr.ExtractQueueRowAt(s, box.Value);
                         Log($"  Game {gameIndex}: queue = [{queue.RankingMode}] / [{queue.QueueType}]  " +

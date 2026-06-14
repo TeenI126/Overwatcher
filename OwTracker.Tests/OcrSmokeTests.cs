@@ -1050,6 +1050,24 @@ public class OcrSmokeTests
             Assert.Equal(new TimeSpan(0, 0, 55), ocr.ExtractHeroPlayTime(bmp));
     }
 
+    // The coloured (pink) "COMPETITIVE" ranking word garbles in the plain LSTM on the light
+    // highlighted row (e.g. "a li v ROLE QUEUE" / dropped entirely → UNKNOWN); the queue reader's
+    // saturated-text mask must recover it. Two real captures with different cyan-box Y positions.
+    [Theory]
+    [InlineData("gamereports-comp-pink",      583, 91)]   // SURAVASA top row
+    [InlineData("gamereports-comp-highlight", 489, 98)]   // ILIOS top row, plain read dropped ranking
+    public void Queue_ReadsColouredRankingOnHighlightedRow(string file, int boxTop, int boxHeight)
+    {
+        RequireScreenshot(file, out var bmp);
+        using (bmp)
+        using (var ocr = MakeOcr())
+        {
+            var q = ocr.ExtractQueueRowAt(bmp, new Rectangle(0, boxTop, 0, boxHeight));
+            Assert.Equal("COMPETITIVE", q.RankingMode);
+            Assert.Equal("ROLE QUEUE", q.QueueType);
+        }
+    }
+
     // HeroRoster.Snap fuzzy (Levenshtein) fallback recovers glyph-corrupted reads the substring/LCS
     // pass misses: a highlighted/selected sidebar tab ("SO .IOUIRN"→Sojourn) and accented names the
     // LSTM mangles ("Lclo"→Lúcio). Short/ambiguous reads must stay Unknown rather than mis-snap.

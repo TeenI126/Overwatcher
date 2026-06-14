@@ -136,12 +136,22 @@
                                 <Border DockPanel.Dock="Top" BorderBrush="{StaticResource LineSoftBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,14" />
                                 <Button DockPanel.Dock="Right" Style="{StaticResource Danger}" Content="Delete History"
                                         Command="{Binding DeleteHistoryCommand}" VerticalAlignment="Center" />
-                                <StackPanel Orientation="Horizontal">
-                                    <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IgnoreDuplicates}" VerticalAlignment="Center" />
-                                    <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
-                                        <TextBlock Text="Deep back-fill" FontSize="12" />
-                                        <TextBlock Text="ignore the duplicate-stop rule and walk the whole list"
-                                                   FontSize="10.5" Foreground="{StaticResource MutedBrush}" />
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IgnoreDuplicates}" VerticalAlignment="Center" />
+                                        <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="Deep back-fill" FontSize="12" />
+                                            <TextBlock Text="ignore the duplicate-stop rule and walk the whole list"
+                                                       FontSize="10.5" Foreground="{StaticResource MutedBrush}" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                        <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding OverwriteOnDuplicate}" VerticalAlignment="Center" />
+                                        <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="Overwrite on duplicate" FontSize="12" />
+                                            <TextBlock Text="replace an existing record with the fresh re-read (correct old data)"
+                                                       FontSize="10.5" Foreground="{StaticResource MutedBrush}" />
+                                        </StackPanel>
                                     </StackPanel>
                                 </StackPanel>
                             </DockPanel>

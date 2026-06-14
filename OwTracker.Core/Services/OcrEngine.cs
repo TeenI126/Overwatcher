@@ -144,8 +144,22 @@ public sealed class OcrEngine : IDisposable
     public QueueRowData ExtractQueueRow(Bitmap screen, int rowIndex)
     {
         var roi = UiCoordinates.GameReportsList_QueueRoi(rowIndex);
-        return ParseQueue(ReadRegionBlock(screen, roi));
+        return ParseQueue(ReadQueueBlock(screen, roi));
     }
+
+    /// <summary>
+    /// Reads the queue label block via several passes and concatenates them for ParseQueue (which
+    /// keyword-matches, so extra/garbled tokens are harmless). The RANKING word (COMPETITIVE/
+    /// UNRANKED) is a saturated accent COLOUR (pink for competitive) that the plain LSTM garbles on
+    /// the light highlighted row — sometimes to junk, sometimes dropped entirely ("a li v" / absent
+    /// → UNKNOWN); the **saturated-text mask** isolates it cleanly. The white second line ("ROLE
+    /// QUEUE") and any white ranking word read from the plain passes (2×/3×). Combining all three
+    /// recovers the tokens whatever the rendering.
+    /// </summary>
+    private string ReadQueueBlock(Bitmap screen, Rectangle roi)
+        => ReadRegionBlock(screen, roi, 2) + "\n" +
+           ReadRegionBlock(screen, roi, 3) + "\n" +
+           ReadRegionSaturatedText(screen, roi);
 
     /// <summary>
     /// Extracts the queue tier/type for the row highlighted by the cyan selection box.
@@ -154,7 +168,7 @@ public sealed class OcrEngine : IDisposable
     /// making this robust to the list being scrolled to an arbitrary (non-row-snapped) offset.
     /// </summary>
     public QueueRowData ExtractQueueRowAt(Bitmap screen, Rectangle selectionBox)
-        => ParseQueue(ReadRegionBlock(screen, QueueRoiForBox(selectionBox)));
+        => ParseQueue(ReadQueueBlock(screen, QueueRoiForBox(selectionBox)));
 
     /// <summary>
     /// The ROI the queue tier/type labels occupy for a row whose cyan selection box is
@@ -607,13 +621,30 @@ public sealed class OcrEngine : IDisposable
     }
 
     /// <summary>
+    /// Reads SATURATED (coloured) text from a region: masks to pixels that are colourful enough
+    /// (channel spread ≥ <paramref name="satMin"/>) and bright enough (max channel ≥
+    /// <paramref name="valMin"/>) → black-on-white → OCR. The Game-Reports queue RANKING word is a
+    /// saturated accent colour (COMPETITIVE = pink) the plain LSTM garbles on the light highlighted
+    /// row, while the desaturated white "ROLE QUEUE" line is excluded. Mirror of
+    /// <see cref="ReadRegionWhiteText"/> for coloured rather than white text.
+    /// </summary>
+    public string ReadRegionSaturatedText(Bitmap source, Rectangle roi, int satMin = 60, int valMin = 120, int scale = 3)
+    {
+        using var crop      = ClampAndCrop(source, roi);
+        using var processed = PreProcessSaturatedText(crop, scale, satMin, valMin);
+        using var pixData   = BitmapToPix(processed);
+        using var page      = Engine.Process(pixData, PageSegMode.SingleBlock);
+        return page.GetText() ?? string.Empty;
+    }
+
+    /// <summary>
     /// OCRs a multi-line region as a single block (newlines preserved). Use for areas
     /// that contain several lines, e.g. the Summary info box.
     /// </summary>
-    public string ReadRegionBlock(Bitmap source, Rectangle roi)
+    public string ReadRegionBlock(Bitmap source, Rectangle roi, int scale = 2)
     {
         using var crop       = ClampAndCrop(source, roi);
-        using var processed  = PreProcess(crop);
+        using var processed  = PreProcess(crop, scale);
         using var pixData    = BitmapToPix(processed);
         using var page       = Engine.Process(pixData, PageSegMode.SingleBlock);
         return page.GetText() ?? string.Empty;
@@ -793,6 +824,32 @@ public sealed class OcrEngine : IDisposable
                 var lum = 0.299 * px.R + 0.587 * px.G + 0.114 * px.B;
                 var c   = lum >= threshold ? Color.Black : Color.White;   // white text → black on white
                 mask.SetPixel(x, y, c);
+            }
+
+        var scaled = new Bitmap(mask.Width * scale, mask.Height * scale, PixelFormat.Format24bppRgb);
+        using (var g = Graphics.FromImage(scaled))
+        {
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode   = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.DrawImage(mask, 0, 0, scaled.Width, scaled.Height);
+        }
+        mask.Dispose();
+        return scaled;
+    }
+
+    /// <summary>Saturation mask for <see cref="ReadRegionSaturatedText"/>: a pixel is text when its
+    /// channel spread (max−min) ≥ satMin AND its max channel ≥ valMin → black, else white.</summary>
+    private static Bitmap PreProcessSaturatedText(Bitmap src, int scale, int satMin, int valMin)
+    {
+        var mask = new Bitmap(src.Width, src.Height, PixelFormat.Format24bppRgb);
+        for (var y = 0; y < src.Height; y++)
+            for (var x = 0; x < src.Width; x++)
+            {
+                var px = src.GetPixel(x, y);
+                var mx = Math.Max(px.R, Math.Max(px.G, px.B));
+                var mn = Math.Min(px.R, Math.Min(px.G, px.B));
+                var coloured = (mx - mn) >= satMin && mx >= valMin;
+                mask.SetPixel(x, y, coloured ? Color.Black : Color.White);
             }
 
         var scaled = new Bitmap(mask.Width * scale, mask.Height * scale, PixelFormat.Format24bppRgb);
