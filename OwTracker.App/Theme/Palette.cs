@@ -15,6 +15,9 @@ public static class Palette
     public static readonly Brush Win   = Frozen("#ff7a18");
     public static readonly Brush Loss  = Frozen("#d8463a");
     public static readonly Brush Draw  = Frozen("#6c7280");
+
+    /// <summary>Rank climbed (ticker ▲) — a green distinct from the orange win accent.</summary>
+    public static readonly Brush RankUp = Frozen("#54cf8a");
     public static readonly Brush Accent = Frozen("#ff7a18");
     public static readonly Brush Muted = Frozen("#808992");
     public static readonly Brush Text  = Frozen("#e7ebf0");

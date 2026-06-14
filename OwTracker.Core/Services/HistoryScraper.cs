@@ -30,6 +30,7 @@ public sealed class HistoryScraper
     private readonly IMatchRepository   _matchRepo;
     private readonly IHeroClassifier    _classifier;
     private readonly IHeroLabelRepository _labelRepo;
+    private readonly IRankRepository    _rankRepo;
 
     /// <summary>Raised after each log line so the UI can display progress.</summary>
     public event Action<string>? LogLine;
@@ -48,7 +49,8 @@ public sealed class HistoryScraper
         ScreenDetector        detector,
         IMatchRepository      matchRepo,
         IHeroClassifier       classifier,
-        IHeroLabelRepository  labelRepo)
+        IHeroLabelRepository  labelRepo,
+        IRankRepository       rankRepo)
     {
         _input      = input;
         _capturer   = capturer;
@@ -57,6 +59,7 @@ public sealed class HistoryScraper
         _matchRepo  = matchRepo;
         _classifier = classifier;
         _labelRepo  = labelRepo;
+        _rankRepo   = rankRepo;
     }
 
     // ── Entry point ───────────────────────────────────────────────────────
@@ -99,6 +102,10 @@ public sealed class HistoryScraper
             return Fail("Could not bring Overwatch to foreground. Is the game running?");
 
         await Task.Delay(400, ct); // let OW settle after focus change
+
+        // Capture the player's competitive rank ONCE at the start of the run (game reports don't show
+        // it). Non-fatal: a failure logs and the scrape proceeds to the match history regardless.
+        await CaptureRankAsync(ct);
 
         Log("Navigating to Game Reports list…");
         // Retry navigation a few times: when launched while a screen is still loading (e.g. the
@@ -729,6 +736,164 @@ public sealed class HistoryScraper
     private static string MatchKey(SummaryData s) =>
         $"{s.MapName}|{s.MatchDatetime:O}";
 
+    // ── Competitive rank capture ──────────────────────────────────────────
+
+    /// <summary>
+    /// Navigates to the COMPETITIVE PROGRESS screen, reads the four role rank cards, and persists a
+    /// <see cref="RankSnapshot"/>. Fully non-fatal — any failure logs and returns, leaving the scrape
+    /// to continue to the match history. Always unwinds back toward the lobby in a finally block so
+    /// the Game-Reports navigation that follows starts from a neutral state.
+    /// </summary>
+    private async Task CaptureRankAsync(CancellationToken ct)
+    {
+        try
+        {
+            Log("Capturing competitive rank…");
+            if (!await NavigateToCompetitiveProgressAsync(ct))
+            {
+                Log("  Could not reach COMPETITIVE PROGRESS — skipping rank capture.");
+                return;
+            }
+
+            IReadOnlyList<RoleRankData>? roles = null;
+            using (var s = Capture())
+            {
+                if (s is not null)
+                {
+                    try { roles = _ocr.ExtractCompetitiveProgress(s); }
+                    catch (Exception ex) { Log($"  Rank OCR failed: {ex.Message}"); }
+
+                    // Save a debug frame when a RANKED card didn't resolve a division — for ROI
+                    // calibration. An unplaced role legitimately has an unreadable *predicted*
+                    // division (dim gray text), so it isn't treated as a failure.
+                    if (roles is null || roles.Any(r => r.IsRanked && r.Division == "Unknown"))
+                    {
+                        var p = Path.Combine(AppPaths.DebugDirectory, $"debug_rank_{DateTime.Now:HHmmss}.png");
+                        try { s.Save(p, System.Drawing.Imaging.ImageFormat.Png); Log($"  Rank frame saved → {p}"); }
+                        catch { }
+                    }
+                }
+            }
+
+            if (roles is not null && roles.Count > 0)
+            {
+                var snapshot = new RankSnapshot
+                {
+                    CapturedAt = DateTime.UtcNow,
+                    Roles = roles.Select(r => new RoleRank
+                    {
+                        Role              = r.Role,
+                        Division          = r.Division,
+                        Tier              = r.Tier,
+                        RankProgress      = r.RankProgress,
+                        ChallengerScore   = r.ChallengerScore,
+                        IsRanked          = r.IsRanked,
+                        PlacementGames    = r.PlacementGames,
+                        PlacementRequired = r.PlacementRequired,
+                        RawText           = r.RawText,
+                    }).ToList(),
+                };
+                await _rankRepo.AddAsync(snapshot, ct);
+                foreach (var r in roles) Log($"    {r.Role}: {FormatRank(r)}");
+                Log("  Rank snapshot saved.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"  Rank capture failed (non-fatal): {ex.Message}");
+        }
+        finally
+        {
+            // ESC twice unwinds COMPETITIVE PROGRESS → PLAY lobby → home.
+            try
+            {
+                await _input.PressEscapeAsync(ct); await Task.Delay(400, ct);
+                await _input.PressEscapeAsync(ct); await Task.Delay(500, ct);
+            }
+            catch { }
+        }
+    }
+
+    private static string FormatRank(RoleRankData r)
+    {
+        if (!r.IsRanked)
+            return $"Unranked (predicted {r.Division} {r.Tier}), placement " +
+                   $"{r.PlacementGames?.ToString() ?? "?"}/{r.PlacementRequired?.ToString() ?? "?"}";
+        var s = $"{r.Division} {r.Tier}";
+        if (r.ChallengerScore is not null) s += $", CS {r.ChallengerScore}";
+        if (r.RankProgress    is not null) s += $", {r.RankProgress}%";
+        return s;
+    }
+
+    /// <summary>
+    /// Drives HOME → PLAY → COMPETITIVE tab → PROGRESS button, verifying the screen at each step.
+    /// Returns true once the COMPETITIVE PROGRESS screen is showing. Click targets are located by
+    /// text where the button has a label (PLAY, COMPETITIVE); the icon-only PROGRESS button uses a
+    /// fixed coordinate.
+    /// </summary>
+    private async Task<bool> NavigateToCompetitiveProgressAsync(CancellationToken ct)
+    {
+        var current = DetectCurrentVerbose("rank initial");
+        if (current == GameScreen.CompetitiveProgress) return true;
+
+        // 1. Unwind to the HOME screen (or the PLAY lobby). Each ESC press either opens the escape
+        //    menu or closes it/a sub-screen toward home; we just keep pressing until a known base
+        //    screen is detected (Home is the crisp HEROES/EVENTS nav-bar fingerprint, so the loop
+        //    doesn't oscillate home↔menu the way a "stop on anything-but-menu" loop did).
+        for (var attempt = 1;
+             attempt <= 4 &&
+             current is not (GameScreen.Home or GameScreen.PlayMenu or GameScreen.CompetitiveProgress);
+             attempt++)
+        {
+            Log($"  rank: pressing ESC to reach the home screen (attempt {attempt})…");
+            await _input.PressEscapeAsync(ct);
+            await Task.Delay(700, ct);
+            current = DetectCurrentVerbose($"rank after ESC {attempt}");
+        }
+        if (current is not (GameScreen.Home or GameScreen.PlayMenu or GameScreen.CompetitiveProgress))
+        {
+            Log("  rank: could not reach the home screen.");
+            return false;
+        }
+
+        // 2. Home → click PLAY → PLAY lobby.
+        if (current == GameScreen.Home)
+        {
+            Point? play;
+            using (var s = Capture()) play = s is null ? null : _detector.FindPlayButton(s);
+            var target = play ?? UiCoordinates.CompProgress_PlayButton;
+            Log($"  rank: clicking PLAY at {target}{(play is null ? " (fallback)" : "")}…");
+            await _input.ClickAsync(target, ct);
+            await Task.Delay(900, ct);
+            current = DetectCurrentVerbose("rank after PLAY");
+            if (current == GameScreen.CompetitiveProgress) return true;
+        }
+
+        // 3. PLAY lobby → COMPETITIVE tab → PROGRESS button.
+        // We DON'T gate on PlayMenu being *detected* here: the lobby's tab labels OCR unreliably
+        // (it often mis-reads as Home), but the PLAY click does open it. So as long as we're not
+        // still on the home/career path, proceed optimistically — the reliable CompetitiveProgress
+        // check at the end (TANK+SUPPORT card titles) is the real gate.
+        if (current is GameScreen.PlayMenu or GameScreen.Home or GameScreen.Unknown)
+        {
+            Point? comp;
+            using (var s = Capture()) comp = s is null ? null : _detector.FindCompetitiveTab(s);
+            var compTarget = comp ?? UiCoordinates.CompProgress_CompetitiveTab;
+            Log($"  rank: clicking COMPETITIVE tab at {compTarget}{(comp is null ? " (fallback)" : "")}…");
+            await _input.ClickAsync(compTarget, ct);
+            await Task.Delay(800, ct);
+
+            Log($"  rank: clicking PROGRESS button at {UiCoordinates.CompProgress_ProgressButton}…");
+            await _input.ClickAsync(UiCoordinates.CompProgress_ProgressButton, ct);
+            await Task.Delay(900, ct);
+            current = DetectCurrentVerbose("rank after PROGRESS");
+            if (current != GameScreen.CompetitiveProgress)
+                SaveStageFrame("rank_afterprogress");   // calibration: where the PROGRESS click landed
+        }
+
+        return current == GameScreen.CompetitiveProgress;
+    }
+
     // ── Navigation ────────────────────────────────────────────────────────
 
     private async Task<bool> NavigateToGameReportsListAsync(CancellationToken ct)
@@ -812,12 +977,24 @@ public sealed class HistoryScraper
         Log($"  [{stage}] screen = {screen}");
         if (screen == GameScreen.Unknown)
         {
+            var safeStage = stage.Replace(' ', '_').Replace(":", "");   // ':' is illegal in NTFS names
             var p = Path.Combine(AppPaths.DebugDirectory,
-                $"debug_{stage.Replace(' ', '_')}_{DateTime.Now:HHmmss}.png");
+                $"debug_{safeStage}_{DateTime.Now:HHmmss}.png");
             try { s.Save(p, System.Drawing.Imaging.ImageFormat.Png); Log($"    saved → {p}"); }
             catch { }
         }
         return screen;
+    }
+
+    /// <summary>Saves the current capture to the debug folder under a fixed name (calibration aid for
+    /// screens that detect as a known-but-possibly-wrong state, where DetectCurrentVerbose won't).</summary>
+    private void SaveStageFrame(string tag)
+    {
+        using var s = Capture();
+        if (s is null) return;
+        var p = Path.Combine(AppPaths.DebugDirectory, $"debug_{tag}_{DateTime.Now:HHmmss}.png");
+        try { s.Save(p, System.Drawing.Imaging.ImageFormat.Png); Log($"    DEBUG: stage frame → {p}"); }
+        catch { }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

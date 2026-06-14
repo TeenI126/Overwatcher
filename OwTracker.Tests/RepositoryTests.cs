@@ -86,6 +86,37 @@ public class RepositoryTests
     }
 
     [Fact]
+    public async Task Match_Upsert_Overwrite_LeavesNoOrphanedChildren()
+    {
+        using var factory = new TestDbContextFactory();
+        var repo = new MatchRepository(factory);
+        var when = new DateTime(2026, 1, 1, 20, 0, 0, DateTimeKind.Utc);
+
+        // Original: IsMe player with two hero playtimes + an enemy player.
+        var original = NewMatch(when: when);
+        var me = new PlayerRecord { IsMe = true, Team = "My Team", EndingHero = "Echo" };
+        me.HeroPlaytimes.Add(new HeroPlaytime { HeroName = "Echo",    TimePlayed = TimeSpan.FromMinutes(6) });
+        me.HeroPlaytimes.Add(new HeroPlaytime { HeroName = "Sojourn", TimePlayed = TimeSpan.FromMinutes(4) });
+        original.AllPlayers.Add(me);
+        original.AllPlayers.Add(new PlayerRecord { IsMe = false, Team = "Enemy Team", EndingHero = "Genji" });
+        await repo.UpsertAsync(original);
+
+        // Overwrite with a fresh read: one IsMe player with a single playtime.
+        var corrected = NewMatch(when: when);
+        var me2 = new PlayerRecord { IsMe = true, Team = "My Team", EndingHero = "Ana" };
+        me2.HeroPlaytimes.Add(new HeroPlaytime { HeroName = "Ana", TimePlayed = TimeSpan.FromMinutes(10) });
+        corrected.AllPlayers.Add(me2);
+        await repo.UpsertAsync(corrected, overwrite: true);
+
+        // The old players + playtimes must be GONE — not left dangling. Count the tables directly.
+        await using var db = factory.CreateDbContext();
+        Assert.Equal(1, db.MatchRecords.Count());
+        Assert.Equal(1, db.PlayerRecords.Count());     // 2 old players removed, 1 new
+        Assert.Equal(1, db.HeroPlaytimes.Count());     // 2 old playtimes removed, 1 new (no orphans)
+        Assert.Equal("Ana", db.HeroPlaytimes.Single().HeroName);
+    }
+
+    [Fact]
     public async Task Match_GetById_IncludesPlayers()
     {
         using var factory = new TestDbContextFactory();
@@ -123,6 +154,59 @@ public class RepositoryTests
         });
 
         Assert.Equal(TimeSpan.FromMinutes(30), await repo.GetTotalActiveTimeAsync());
+        Assert.Equal(2, (await repo.GetAllAsync()).Count);
+    }
+
+    [Fact]
+    public async Task Rank_Add_PersistsRolesAndNullableFields()
+    {
+        using var factory = new TestDbContextFactory();
+        var repo = new RankRepository(factory);
+
+        var snapshot = new RankSnapshot
+        {
+            CapturedAt = new DateTime(2026, 6, 13, 23, 14, 0, DateTimeKind.Utc),
+            Roles =
+            {
+                new RoleRank { Role = "Tank", Division = "Diamond", Tier = 5,
+                               RankProgress = -2, IsRanked = true, RawText = "DIAMOND 5" },
+                new RoleRank { Role = "Support", Division = "Master", Tier = 2,
+                               ChallengerScore = 2284, RankProgress = 4, IsRanked = true },
+                new RoleRank { Role = "Open Queue", Division = "Gold", Tier = 1,
+                               IsRanked = false, PlacementGames = 1, PlacementRequired = 10 },
+            },
+        };
+
+        var saved = await repo.AddAsync(snapshot);
+        Assert.True(saved.Id > 0);
+
+        var loaded = await repo.GetLatestAsync();
+        Assert.NotNull(loaded);
+        Assert.Equal(3, loaded!.Roles.Count);
+
+        var tank = loaded.Roles.Single(r => r.Role == "Tank");
+        Assert.Equal("Diamond", tank.Division);
+        Assert.Equal(-2, tank.RankProgress);
+        Assert.Null(tank.ChallengerScore);
+
+        var openQ = loaded.Roles.Single(r => r.Role == "Open Queue");
+        Assert.False(openQ.IsRanked);
+        Assert.Equal(1, openQ.PlacementGames);
+        Assert.Equal(10, openQ.PlacementRequired);
+        Assert.Null(openQ.RankProgress);
+    }
+
+    [Fact]
+    public async Task Rank_GetLatest_ReturnsMostRecentSnapshot()
+    {
+        using var factory = new TestDbContextFactory();
+        var repo = new RankRepository(factory);
+
+        await repo.AddAsync(new RankSnapshot { CapturedAt = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc) });
+        await repo.AddAsync(new RankSnapshot { CapturedAt = new DateTime(2026, 6, 13, 0, 0, 0, DateTimeKind.Utc) });
+
+        var latest = await repo.GetLatestAsync();
+        Assert.Equal(new DateTime(2026, 6, 13, 0, 0, 0, DateTimeKind.Utc), latest!.CapturedAt);
         Assert.Equal(2, (await repo.GetAllAsync()).Count);
     }
 

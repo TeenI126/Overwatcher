@@ -14,6 +14,8 @@ public sealed class OwTrackerDbContext : DbContext
     public DbSet<HeroPlaytime> HeroPlaytimes => Set<HeroPlaytime>();
     public DbSet<SessionRecord> SessionRecords => Set<SessionRecord>();
     public DbSet<PendingHeroLabel> PendingHeroLabels => Set<PendingHeroLabel>();
+    public DbSet<RankSnapshot> RankSnapshots => Set<RankSnapshot>();
+    public DbSet<RoleRank> RoleRanks => Set<RoleRank>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -62,6 +64,23 @@ public sealed class OwTrackerDbContext : DbContext
             e.Property(l => l.CropPath).IsRequired();
             e.Property(l => l.PredictedHero).IsRequired();
             e.Property(l => l.Reviewed).HasDefaultValue(false);
+        });
+
+        modelBuilder.Entity<RankSnapshot>(e =>
+        {
+            e.HasKey(s => s.Id);
+
+            e.HasMany(s => s.Roles)
+                .WithOne(r => r.Snapshot!)
+                .HasForeignKey(r => r.RankSnapshotId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RoleRank>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Role).IsRequired();
+            e.Property(r => r.Division).IsRequired();
         });
     }
 }

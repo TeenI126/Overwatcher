@@ -23,6 +23,7 @@ public sealed partial class MainViewModel : ObservableObject
     public MatchHistoryViewModel MatchHistory { get; }
     public HeroMapViewModel HeroMap { get; }
     public SessionViewModel Sessions { get; }
+    public RankHistoryViewModel RankHistory { get; }
     public HeroReviewViewModel HeroReview { get; }
     public SettingsViewModel Settings { get; }
 
@@ -40,6 +41,7 @@ public sealed partial class MainViewModel : ObservableObject
         MatchHistoryViewModel matchHistory,
         HeroMapViewModel heroMap,
         SessionViewModel sessions,
+        RankHistoryViewModel rankHistory,
         HeroReviewViewModel heroReview,
         SettingsViewModel settings)
     {
@@ -49,6 +51,7 @@ public sealed partial class MainViewModel : ObservableObject
         MatchHistory = matchHistory;
         HeroMap = heroMap;
         Sessions = sessions;
+        RankHistory = rankHistory;
         HeroReview = heroReview;
         Settings = settings;
 
@@ -58,6 +61,7 @@ public sealed partial class MainViewModel : ObservableObject
             new("Stored Games", AppScreen.StoredGames, "Tracker"),
             new("Hero × Map",   AppScreen.HeroMap,     "Tracker"),
             new("Sessions",     AppScreen.Sessions,    "Tracker"),
+            new("Rank History", AppScreen.RankHistory, "Tracker"),
             new("Hero Review",  AppScreen.HeroReview,  "System"),
             new("Settings",     AppScreen.Settings,    "System"),
         };
@@ -86,6 +90,7 @@ public sealed partial class MainViewModel : ObservableObject
             AppScreen.StoredGames => MatchHistory,
             AppScreen.HeroMap     => HeroMap,
             AppScreen.Sessions    => Sessions,
+            AppScreen.RankHistory => RankHistory,
             AppScreen.HeroReview  => HeroReview,
             AppScreen.Settings    => Settings,
             _                     => Dashboard,
@@ -102,6 +107,7 @@ public sealed partial class MainViewModel : ObservableObject
             AppScreen.StoredGames => MatchHistory.RefreshAsync(),
             AppScreen.HeroMap     => HeroMap.RefreshAsync(),
             AppScreen.Sessions    => Sessions.RefreshAsync(),
+            AppScreen.RankHistory => RankHistory.RefreshAsync(),
             AppScreen.HeroReview  => HeroReview.RefreshAsync(),
             _                     => System.Threading.Tasks.Task.CompletedTask,
         };

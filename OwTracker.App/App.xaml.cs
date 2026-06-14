@@ -173,6 +173,7 @@ public partial class App : Application
         await main.MatchHistory.RefreshAsync();
         await main.HeroMap.RefreshAsync();
         await main.Sessions.RefreshAsync();
+        await main.RankHistory.RefreshAsync();
         await main.HeroReview.RefreshAsync();
     }
 
@@ -196,6 +197,7 @@ public partial class App : Application
         services.AddSingleton<MatchHistoryViewModel>();
         services.AddSingleton<HeroMapViewModel>();
         services.AddSingleton<SessionViewModel>();
+        services.AddSingleton<RankHistoryViewModel>();
         services.AddSingleton<HeroReviewViewModel>();
         services.AddSingleton<SettingsViewModel>();
 

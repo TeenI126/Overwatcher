@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddSingleton<IMatchRepository, MatchRepository>();
         services.AddSingleton<ISessionRepository, SessionRepository>();
         services.AddSingleton<IHeroLabelRepository, HeroLabelRepository>();
+        services.AddSingleton<IRankRepository, RankRepository>();
 
         return services;
     }

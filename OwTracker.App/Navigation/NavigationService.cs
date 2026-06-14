@@ -9,6 +9,7 @@ public enum AppScreen
     StoredGames,
     HeroMap,
     Sessions,
+    RankHistory,
     HeroReview,
     Settings,
 }

@@ -12,6 +12,9 @@ public enum GameScreen
     CareerProfile,
     GameReportsList,
     MatchDetail,
+    Home,                // the main lobby home screen (PLAY button + HEROES/EVENTS/… top nav)
+    PlayMenu,            // the PLAY lobby (UNRANKED / COMPETITIVE / STADIUM / ARCADE tabs)
+    CompetitiveProgress, // the COMPETITIVE PROGRESS screen (per-role rank cards)
 }
 
 /// <summary>
@@ -43,6 +46,20 @@ public sealed class ScreenDetector
     private static Rectangle ViewReportBar(Bitmap b)  => Frac(b, 0.39f, 0.87f, 0.24f, 0.07f);
     /// <summary>Left sidebar of the match-detail PERSONAL tab (hero list + "ALL HEROES" button).</summary>
     private static Rectangle PersonalSidebar(Bitmap b) => Frac(b, 0.015f, 0.14f, 0.22f, 0.66f);
+    /// <summary>Role-card title band on the COMPETITIVE PROGRESS screen (TANK / DAMAGE / SUPPORT /
+    /// OPEN QUEUE — crisp white caps on the dark card headers, a far more reliable anchor than the
+    /// faint gray "COMPETITIVE PROGRESS" header above).</summary>
+    private static Rectangle RankCardTitles(Bitmap b)  => Frac(b, 0.05f, 0.30f, 0.92f, 0.12f);
+    /// <summary>The PLAY-lobby top tab row (UNRANKED / COMPETITIVE / STADIUM / ARCADE / MORE), at
+    /// ≈y140–185 on a 1440-tall capture. UNRANKED/STADIUM/ARCADE/MORE OCR cleanly; "COMPETITIVE"
+    /// reliably garbles (→ "COMPETTIVE"/"COMPENINIVE"), so it's matched on the "OMPE" fragment.</summary>
+    private static Rectangle PlayMenuTabs(Bitmap b)    => Frac(b, 0.00f, 0.09f, 0.95f, 0.07f);
+    /// <summary>Top-centre of the home screen, where the blue PLAY button sits (the "PLAY" pill
+    /// centres at ≈y52 on a 1440-tall capture).</summary>
+    private static Rectangle TopCenter(Bitmap b)       => Frac(b, 0.40f, 0.00f, 0.20f, 0.08f);
+    /// <summary>Top-left main nav bar (HEROES / EVENTS / BATTLE PASS / SHOP / STORY) — present on the
+    /// home screen (and the PLAY lobby, which is checked first).</summary>
+    private static Rectangle TopNavBar(Bitmap b)       => Frac(b, 0.00f, 0.00f, 0.45f, 0.06f);
 
     /// <summary>Returns the screen currently visible in <paramref name="screenshot"/>.</summary>
     public GameScreen Detect(Bitmap screenshot)
@@ -64,12 +81,45 @@ public sealed class ScreenDetector
             Find(screenshot, "OVERVIEW", TopTabBar(screenshot)) is not null)
             return GameScreen.CareerProfile;
 
+        // ── Competitive Progress (per-role rank cards) ─────────────────────
+        // Anchor on two of the role-card titles (crisp white caps). The faint "COMPETITIVE PROGRESS"
+        // header OCRs unreliably; the card titles do not, and TANK+SUPPORT together appear on no
+        // other screen.
+        if (Find(screenshot, "TANK",    RankCardTitles(screenshot)) is not null &&
+            Find(screenshot, "SUPPORT", RankCardTitles(screenshot)) is not null)
+            return GameScreen.CompetitiveProgress;
+
+        // ── Play lobby (UNRANKED / COMPETITIVE / STADIUM / ARCADE tabs) ─────
+        // Anchor on UNRANKED + STADIUM — both OCR cleanly (COMPETITIVE garbles), always present, and
+        // well within frame.
+        if (Find(screenshot, "UNRANKED", PlayMenuTabs(screenshot)) is not null &&
+            Find(screenshot, "STADIUM",  PlayMenuTabs(screenshot)) is not null)
+            return GameScreen.PlayMenu;
+
         // ── Escape / lobby menu (CAREER PROFILE button) ────────────────────
         if (Find(screenshot, "CAREER", EscMenuPanel(screenshot)) is not null)
             return GameScreen.EscapeMenu;
 
+        // ── Home (main lobby) ──────────────────────────────────────────────
+        // The top nav bar (HEROES / EVENTS / BATTLE PASS / …) is also on the PLAY lobby — checked
+        // above — so by here it means the home screen. Checked AFTER the escape menu so a menu
+        // overlay (if it leaves the nav bar visible) doesn't read as Home.
+        if (Find(screenshot, "HEROES", TopNavBar(screenshot)) is not null &&
+            Find(screenshot, "EVENTS", TopNavBar(screenshot)) is not null)
+            return GameScreen.Home;
+
         return GameScreen.Unknown;
     }
+
+    /// <summary>Locates the home-screen PLAY button (top-centre).</summary>
+    public Point? FindPlayButton(Bitmap b) =>
+        _ocr.FindTextCenter(b, "PLAY", TopCenter(b));
+
+    /// <summary>Locates the COMPETITIVE tab in the PLAY lobby's top tab row. The label garbles under
+    /// OCR ("COMPETTIVE"/"COMPENINIVE"), so it's matched on the stable "OMPE" fragment common to the
+    /// variants. Returns null if not found (caller falls back to a fixed coordinate).</summary>
+    public Point? FindCompetitiveTab(Bitmap b) =>
+        _ocr.FindTextCenter(b, "OMPE", PlayMenuTabs(b));
 
     // ── Click-target locators (return screen-space centre to click) ─────────
 

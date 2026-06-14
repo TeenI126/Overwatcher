@@ -15,7 +15,14 @@ public sealed class MatchRepository : IMatchRepository
     {
         await using var db = await _contextFactory.CreateDbContextAsync(ct);
 
+        // Load the existing match WITH its full child graph (players + their playtimes). This is
+        // required for a correct overwrite: tracking the children lets EF client-side cascade-delete
+        // them on Remove, rather than relying on the database's ON DELETE CASCADE. The DB-level
+        // cascade silently failed in the past (under SQLite index corruption / foreign_keys state),
+        // leaving orphaned PlayerRecords/HeroPlaytimes behind — the dangling rows the DB repair had
+        // to clean up. Tracking + client cascade makes the replace self-contained and orphan-free.
         var existing = await db.MatchRecords
+            .Include(m => m.AllPlayers).ThenInclude(p => p.HeroPlaytimes)
             .FirstOrDefaultAsync(
                 m => m.MapName == record.MapName && m.MatchDatetime == record.MatchDatetime,
                 ct);
@@ -26,10 +33,11 @@ public sealed class MatchRepository : IMatchRepository
                 return existing;
 
             // Replace the stored row with the freshly-scraped data. Remove + re-add (rather than
-            // patching fields) so the child players/playtimes are fully replaced — cascade delete
-            // removes the old children. We still return the (now-removed) existing instance so the
-            // caller's ReferenceEquals check classifies this as an already-present match, not a new
-            // one (preserving the deep-scrape tallies / non-deep duplicate-stop semantics).
+            // patching fields) so the child players/playtimes are fully replaced — the tracked graph
+            // above ensures the old children are deleted with the parent. We still return the
+            // (now-removed) existing instance so the caller's ReferenceEquals check classifies this
+            // as an already-present match, not a new one (preserving the deep-scrape tallies /
+            // non-deep duplicate-stop semantics).
             db.MatchRecords.Remove(existing);
             db.MatchRecords.Add(record);
             await db.SaveChangesAsync(ct);

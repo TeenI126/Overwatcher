@@ -1839,6 +1839,179 @@ public class OcrSmokeTests
                            $"DMG={p.DamageDealt,6} H={p.HealingDone,6} MIT={p.DamageMitigated,6}");
     }
 
+    // ── Competitive rank-card parsing (OcrEngine.ParseRankCard) ───────────
+    // Pure parse tests over the text variants seen on the COMPETITIVE PROGRESS screen — no live
+    // frame needed. (The card ROIs in UiCoordinates are still estimates pending a live calibration
+    // pass, but the parser these feed is exercised here.)
+
+    [Fact]
+    public void ParseRankCard_RankedRole_DivisionTierProgress()
+    {
+        var r = OcrEngine.ParseRankCard("Tank", "DIAMOND 5\nRANK PROGRESS: -2%");
+        Assert.Equal("Diamond", r.Division);
+        Assert.Equal(5, r.Tier);
+        Assert.Equal(-2, r.RankProgress);
+        Assert.True(r.IsRanked);
+        Assert.Null(r.ChallengerScore);
+        Assert.Null(r.PlacementGames);
+    }
+
+    [Fact]
+    public void ParseRankCard_PositiveProgress()
+    {
+        var r = OcrEngine.ParseRankCard("Damage", "DIAMOND 2\nRANK PROGRESS: 19%");
+        Assert.Equal("Diamond", r.Division);
+        Assert.Equal(2, r.Tier);
+        Assert.Equal(19, r.RankProgress);
+        Assert.True(r.IsRanked);
+    }
+
+    [Fact]
+    public void ParseRankCard_MasterTier_HasChallengerScore()
+    {
+        var r = OcrEngine.ParseRankCard("Support",
+            "MASTER 2\nCHALLENGER SCORE: 2,284\nRANK PROGRESS: 4%");
+        Assert.Equal("Master", r.Division);
+        Assert.Equal(2, r.Tier);
+        Assert.Equal(2284, r.ChallengerScore);
+        Assert.Equal(4, r.RankProgress);
+        Assert.True(r.IsRanked);
+    }
+
+    [Fact]
+    public void ParseRankCard_UnplacedOpenQueue_PlacementAndPrediction()
+    {
+        var r = OcrEngine.ParseRankCard("Open Queue",
+            "PREDICTED RANK\nGOLD 1\nUNRANKED\nPLACEMENT PROGRESS: 1/10");
+        Assert.False(r.IsRanked);
+        Assert.Equal("Gold", r.Division);   // the predicted division
+        Assert.Equal(1, r.Tier);
+        Assert.Equal(1, r.PlacementGames);
+        Assert.Equal(10, r.PlacementRequired);
+        Assert.Null(r.RankProgress);
+    }
+
+    [Fact]
+    public void ParseRankCard_GlyphNoise_StillResolvesDivision()
+    {
+        // Leading-letter drift on the division + the score font's 0→O: SnapDivision's fuzzy pass
+        // recovers it, and the first 1–5 digit gives the tier.
+        var r = OcrEngine.ParseRankCard("Tank", "0IAMOND 5\nRANK PROGRESS: -2%");
+        Assert.Equal("Diamond", r.Division);
+        Assert.Equal(5, r.Tier);
+    }
+
+    [Fact]
+    public void ParseRankCard_Garbage_LeavesDivisionUnknown()
+    {
+        var r = OcrEngine.ParseRankCard("Tank", "{e]V}]¥.1.]");
+        Assert.Equal("Unknown", r.Division);
+        Assert.Equal(0, r.Tier);
+    }
+
+    [Theory]
+    [InlineData("DIAMOND",     "Diamond")]
+    [InlineData("MASTER",      "Master")]
+    [InlineData("GRANDMASTER", "Grandmaster")]   // must win over the MASTER substring
+    [InlineData("PLATINUM",    "Platinum")]
+    [InlineData("GOLD",        "Gold")]
+    [InlineData("CHAMPION",    "Champion")]
+    [InlineData("zzzzz",       null)]
+    public void RankRoster_SnapDivision(string raw, string? expected)
+        => Assert.Equal(expected, RankRoster.SnapDivision(raw));
+
+    [Theory]
+    [InlineData("Master", true)]
+    [InlineData("Grandmaster", true)]
+    [InlineData("Champion", true)]
+    [InlineData("Diamond", false)]
+    [InlineData("Gold", false)]
+    public void RankRoster_IsChallengerTier(string division, bool expected)
+        => Assert.Equal(expected, RankRoster.IsChallengerTier(division));
+
+    [Theory]
+    [InlineData("Bronze",  5,   0,  0.0)]    // ladder floor
+    [InlineData("Bronze",  1,   0,  4.0)]    // top of Bronze
+    [InlineData("Silver",  5,   0,  5.0)]    // next division floor
+    [InlineData("Diamond", 5,   0, 20.0)]
+    [InlineData("Diamond", 1,   0, 24.0)]
+    [InlineData("Diamond", 5,  -2, 19.98)]   // negative within-tier progress
+    [InlineData("Master",  2, -20, 27.8)]    // Master 2 at -20%
+    [InlineData("Champion",1, 100, 40.0)]    // ceiling
+    public void RankRoster_Score_LaddersMonotonically(string div, int tier, int prog, double expected)
+        => Assert.Equal(expected, RankRoster.Score(div, tier, prog)!.Value, 3);
+
+    [Fact]
+    public void RankRoster_Score_UnknownDivisionIsNull()
+        => Assert.Null(RankRoster.Score("Unknown", 0, null));
+
+    [Fact]
+    public void RankRoster_Score_IsStrictlyIncreasingUpTheLadder()
+    {
+        // Walk every rung Bronze 5 → Champion 1 and assert each score exceeds the previous.
+        double prev = double.NegativeInfinity;
+        foreach (var div in RankRoster.Divisions)
+            for (var tier = 5; tier >= 1; tier--)
+            {
+                var s = RankRoster.Score(div, tier, 0)!.Value;
+                Assert.True(s > prev, $"{div} {tier} = {s} not > {prev}");
+                prev = s;
+            }
+    }
+
+    /// <summary>Dumps the raw per-card block OCR + parsed rank for the COMPETITIVE PROGRESS frame so
+    /// the CompProgress_Card ROIs can be calibrated. Writes comp-progress-diag.txt.</summary>
+    [Fact]
+    public void Diagnostics_CompetitiveProgressCards()
+    {
+        RequireScreenshot("comp-progress", out var bmp);
+        var lines = new List<string>();
+        using (bmp)
+        using (var ocr = MakeOcr())
+        {
+            var detector = new ScreenDetector(ocr);
+            lines.Add($"Detect() = {detector.Detect(bmp)}  (expect CompetitiveProgress)");
+            lines.Add("");
+            for (var i = 0; i < RankRoster.Roles.Count; i++)
+            {
+                var roi = UiCoordinates.CompProgress_Card(i);
+                var raw = ocr.ReadRegionBlock(bmp, roi).Replace("\r", " ").Replace("\n", " | ").Trim();
+                lines.Add($"[card {i} {RankRoster.Roles[i]}] roi={roi}");
+                lines.Add($"   raw=[{raw}]");
+            }
+            lines.Add("");
+            foreach (var r in ocr.ExtractCompetitiveProgress(bmp))
+                lines.Add($"   {r.Role,-11}: div={r.Division} tier={r.Tier} prog={r.RankProgress} " +
+                          $"cs={r.ChallengerScore} ranked={r.IsRanked} place={r.PlacementGames}/{r.PlacementRequired}");
+        }
+        foreach (var l in lines) _out.WriteLine(l);
+        File.WriteAllLines(Path.Combine(ScreenshotDir, "..", "comp-progress-diag.txt"), lines);
+    }
+
+    /// <summary>Dumps every word the OCR reads across the top of the PLAY-lobby frame (y 0–200) so the
+    /// PlayMenuTabs region + tab anchors can be calibrated. Writes play-menu-diag.txt.</summary>
+    [Fact]
+    public void Diagnostics_PlayMenuTabs()
+    {
+        RequireScreenshot("play-menu", out var bmp);
+        var lines = new List<string>();
+        using (bmp)
+        using (var ocr = MakeOcr())
+        {
+            lines.Add($"Detect() = {new ScreenDetector(ocr).Detect(bmp)}  (expect PlayMenu)");
+            lines.Add("words in y[0,200] across full width:");
+            for (var y = 0; y < 200; y += 20)
+            {
+                var roi = new Rectangle(0, y, bmp.Width, 44);
+                foreach (var (w, box) in ocr.ReadWords(bmp, roi))
+                    if (w.Trim().Length >= 3)
+                        lines.Add($"  y~{box.Y,4} x[{box.Left,4},{box.Right,4}] [{w.Trim()}]");
+            }
+        }
+        foreach (var l in lines) _out.WriteLine(l);
+        File.WriteAllLines(Path.Combine(ScreenshotDir, "..", "play-menu-diag.txt"), lines);
+    }
+
     private static OcrEngine MakeOcr()
     {
         var tessDir = TessDataManager.TessDataDirectory;

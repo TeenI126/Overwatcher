@@ -303,4 +303,45 @@ public static class UiCoordinates
     /// not just the top-3 the Summary shows.
     /// </summary>
     public static readonly Rectangle Personal_HeroPlayTime = new(740, 466, 190, 36);
+
+    // ── Competitive rank capture (PLAY → COMPETITIVE → PROGRESS) ───────────
+    // Captured once at the start of each scrape: game reports don't show the player's rank, so it's
+    // read from the COMPETITIVE PROGRESS screen instead. Navigation: HOME → click PLAY (top-centre) →
+    // click the COMPETITIVE tab (located by text) → click the PROGRESS button (icon-only, no label →
+    // fixed coordinate) → OCR the four role cards.
+    //
+    // ⚠ ALL coordinates/ROIs below are ESTIMATES scaled from the supplied 2560×1440 screenshots and
+    //   have NOT been verified against a live capture/sweep test (the calibration loop the other ROIs
+    //   went through). Add a Diagnostics_* sweep and correct these on the first live rank-capture run.
+
+    /// <summary>Home-screen PLAY button (top-centre). Located by the word "PLAY" when possible; this
+    /// is the click-through fallback (calibrated from a live home-screen capture).</summary>
+    public static readonly Point CompProgress_PlayButton = new(1280, 52);
+
+    /// <summary>The COMPETITIVE tab in the PLAY lobby's top tab row — fixed-coordinate fallback for
+    /// when its garbled label can't be located by the "OMPE" fragment (calibrated from a live
+    /// play-lobby capture: COMPETITIVE text spans x≈678–935, y≈150).</summary>
+    public static readonly Point CompProgress_CompetitiveTab = new(790, 158);
+
+    /// <summary>The PROGRESS button — the 2nd of the small icon buttons (circular checkmark) under the
+    /// Competitive queue buttons. Icon-only (no label), so it can't be located by text. Calibrated
+    /// from a live competitive-lobby capture (tile centre ≈ x285, y1035).</summary>
+    public static readonly Point CompProgress_ProgressButton = new(285, 1035);
+
+    // The four role cards (Tank / Damage / Support / Open Queue), left→right. Each card's rank block
+    // (predicted-rank label / "DIVISION TIER" / Challenger Score / Rank Progress % / Placement N/M)
+    // is read as ONE tall block and parsed by regex — robust to vertical drift between the variants
+    // (a ranked role has 1–3 lines; an unplaced Open Queue role has predicted-rank + placement).
+    private const int CompProgress_CardBlockTop    = 790;   // ⚠ estimate
+    private const int CompProgress_CardBlockHeight = 280;   // ⚠ estimate — covers all card variants
+    private const int CompProgress_CardWidth       = 380;   // ⚠ estimate — inset to avoid neighbours
+
+    /// <summary>Screen-X centres of the four role cards, in order: Tank, Damage, Support, Open Queue.
+    /// ⚠ estimates — calibrate.</summary>
+    public static readonly int[] CompProgress_CardCentersX = { 435, 1004, 1569, 2138 };
+
+    /// <summary>Rank-text block ROI for role card <paramref name="index"/> (0=Tank … 3=Open Queue).</summary>
+    public static Rectangle CompProgress_Card(int index) =>
+        new(CompProgress_CardCentersX[index] - CompProgress_CardWidth / 2,
+            CompProgress_CardBlockTop, CompProgress_CardWidth, CompProgress_CardBlockHeight);
 }

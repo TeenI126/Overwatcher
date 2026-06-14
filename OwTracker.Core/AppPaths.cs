@@ -6,13 +6,21 @@ namespace OwTracker.Core;
 /// </summary>
 public static class AppPaths
 {
+    /// <summary>
+    /// The app-data root. Defaults to <c>%APPDATA%\OwTracker</c>; an optional
+    /// <c>OWTRACKER_DATA_DIR</c> environment variable overrides it (used for testing against an
+    /// isolated DB / a separate profile without touching the live data). Production is unaffected
+    /// when the variable is unset.
+    /// </summary>
     public static string Root
     {
         get
         {
-            var root = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "OwTracker");
+            var root = Environment.GetEnvironmentVariable("OWTRACKER_DATA_DIR");
+            if (string.IsNullOrWhiteSpace(root))
+                root = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "OwTracker");
             Directory.CreateDirectory(root);
             return root;
         }

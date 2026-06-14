@@ -15,6 +15,7 @@ public sealed partial class DashboardViewModel : ObservableObject
 {
     private readonly IMatchRepository   _matchRepository;
     private readonly ISessionRepository _sessionRepository;
+    private readonly IRankRepository    _rankRepository;
     private readonly HistoryScraper     _scraper;
     private readonly NavigationService  _nav;
 
@@ -64,16 +65,24 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private MapStat?  _topMap;
     [ObservableProperty] private HeroStat? _mostPlayed;
 
+    // ── Competitive rank (latest snapshot) ──────────────────────────────────
+    /// <summary>The four role cards of the most recent rank snapshot (Tank/Damage/Support/Open Queue).</summary>
+    public ObservableCollection<RankCardVm> CurrentRank { get; } = new();
+    [ObservableProperty] private bool   _hasRank;
+    [ObservableProperty] private string _rankCapturedText = "";
+
     public DashboardViewModel(
         OverwatchWatcher    watcher,
         IMatchRepository    matchRepository,
         ISessionRepository  sessionRepository,
+        IRankRepository     rankRepository,
         HistoryScraper      scraper,
         NavigationService   nav)
     {
         Watcher            = watcher;
         _matchRepository   = matchRepository;
         _sessionRepository = sessionRepository;
+        _rankRepository    = rankRepository;
         _scraper           = scraper;
         _nav               = nav;
 
@@ -136,6 +145,33 @@ public sealed partial class DashboardViewModel : ObservableObject
         TopHero    = StatsService.TopHero(matches, minGames: 3);
         TopMap     = StatsService.TopMap(matches, minGames: 3);
         MostPlayed = StatsService.MostPlayedHero(matches);
+
+        await RefreshRankAsync();
+    }
+
+    /// <summary>Loads the most recent competitive-rank snapshot for the Dashboard rank strip.</summary>
+    private async Task RefreshRankAsync()
+    {
+        var latest = await _rankRepository.GetLatestAsync();
+        CurrentRank.Clear();
+        if (latest is null || latest.Roles.Count == 0)
+        {
+            HasRank = false;
+            RankCapturedText = "";
+            return;
+        }
+
+        // Keep the canonical role order (Tank, Damage, Support, Open Queue) regardless of row order.
+        foreach (var role in RankRoster.Roles)
+        {
+            var r = latest.Roles.FirstOrDefault(x => x.Role == role);
+            if (r is not null) CurrentRank.Add(RankCardVm.From(r));
+        }
+        foreach (var r in latest.Roles.Where(x => !RankRoster.Roles.Contains(x.Role)))
+            CurrentRank.Add(RankCardVm.From(r));
+
+        HasRank = true;
+        RankCapturedText = $"captured {latest.CapturedAt.ToLocalTime():MMM d, h:mm tt}";
     }
 
     private bool CanStartScrape() => Watcher.IsOwRunning && !IsScraping;
@@ -197,6 +233,7 @@ public sealed partial class DashboardViewModel : ObservableObject
     // ── Navigation (rail jumps + top-performer deep-links) ──────────────────
     [RelayCommand] private void GoStoredGames() => _nav.Go(AppScreen.StoredGames);
     [RelayCommand] private void GoHeatmap() => _nav.GoHeroMap(new HeroMapIntent(HeroMapView.Heatmap));
+    [RelayCommand] private void GoRankHistory() => _nav.Go(AppScreen.RankHistory);
 
     [RelayCommand]
     private void OpenTopHero()

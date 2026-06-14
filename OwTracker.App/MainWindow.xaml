@@ -21,6 +21,7 @@
         <DataTemplate DataType="{x:Type vm:MatchHistoryViewModel}"><views:MatchHistoryView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:HeroMapViewModel}"><views:HeroMapView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:SessionViewModel}"><views:SessionView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:RankHistoryViewModel}"><views:RankHistoryView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:HeroReviewViewModel}"><views:HeroReviewView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}"><views:SettingsView /></DataTemplate>
 

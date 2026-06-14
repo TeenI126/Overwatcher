@@ -38,9 +38,11 @@ back-fill that walks to the end of the list (terminates gracefully when the Down
 the last game) and saves every Teams frame to `debug\` for calibration. Slower: the scraper
 re-navigates from the top each game (`Down`×N), so per-game cost grows down the list. A single
 match that fails to open (transient VIEW miss) is recovered + skipped, not fatal (bails only after
-5 in a row) — so a deep run actually reaches the end. Dedup is by `ReferenceEquals` on
-`UpsertAsync` (returns existing instance on dup) so it does NOT update existing rows — to
-re-complete partial records (e.g. add IsMe), Delete History first, then `--scrape-deep`.
+5 in a row) — so a deep run actually reaches the end. A deep scrape **overwrites** an existing
+record with the fresh re-read (`UpsertAsync(overwrite: true)` — the old row + its players/playtimes
+are replaced), so it re-completes/corrects records in place; no need to Delete History first. A
+normal `--scrape` still leaves existing rows untouched (won't clobber good data with a transient
+read). Either way a pre-existing match is still reported as a duplicate in the run tallies.
 
 **Distribution build — use `Publish.bat`** (or the equivalent command inside it):
 
@@ -162,7 +164,41 @@ All-Heroes OCR is a hybrid: right column (DMG/Healing/Mitigation) per-cell; left
 tiny isolated digits) via row-band (`ReadCardRow`). Debug frames go to `AppPaths.DebugDirectory`.
 
 **Dedup:** `MatchRepository.UpsertAsync` returns the same instance on insert, the existing
-instance on duplicate (`ReferenceEquals` distinguishes them). Key = `(MapName, MatchDatetime)`.
+instance on duplicate (`ReferenceEquals` distinguishes them → `NewRecord` vs `DbDuplicate`).
+Key = `(MapName, MatchDatetime)`. With `overwrite: true` (deep scrape) a duplicate's row +
+children are replaced with the fresh data, but the return is still the (≠ new) existing instance
+so it's counted as a duplicate, not new.
+
+**Competitive rank capture (`HistoryScraper.CaptureRankAsync`)** runs ONCE at the start of every
+scrape, before the match loop — game reports don't show the player's rank, and it shifts after each
+competitive game (per the queued role / open queue), so each run snapshots the current standing.
+Navigation (`NavigateToCompetitiveProgressAsync`, all `CompProgress_*` coords **live-calibrated** at
+2560×1440): unwind to **HOME** (detected by the `HEROES`/`EVENTS` top-nav fingerprint — needed to
+stop the ESC loop oscillating home↔escape-menu) → click **PLAY** (the blue pill centres at ≈(1280,52),
+*above* where you'd guess; its italic label OCRs poorly so a fixed coord is the fallback) → click the
+**COMPETITIVE** tab → click the **PROGRESS** button (2nd icon, circular-checkmark, no label → fixed
+coord `CompProgress_ProgressButton` ≈(285,1035)) → `GameScreen.CompetitiveProgress`. Two OCR gotchas
+drove the design: the lobby's **"COMPETITIVE" tab label reliably garbles** ("COMPETTIVE"/"COMPENINIVE")
+so it's located on the `OMPE` fragment (`FindCompetitiveTab`), and the **PlayMenu screen OCRs too
+unreliably to gate on** (it often mis-reads as Home) — so the nav clicks COMPETITIVE→PROGRESS
+**optimistically** and relies on the reliable destination check (the crisp `TANK`+`SUPPORT` card
+titles) as the real gate. `OcrEngine.ExtractCompetitiveProgress` reads the four role cards (Tank /
+Damage / Support / Open Queue — role from card **position**, not OCR) as one block each and
+`ParseRankCard` (static, unit-tested) pulls division+tier ("DIAMOND 5"), rank-progress % (can be
+negative), Master+ Challenger Score, and unplaced-Open-Queue placement progress ("1/10",
+`IsRanked=false`). Persisted as a `RankSnapshot` + per-role `RoleRank` children via `IRankRepository`
+(mirrors `MatchRecord`/`PlayerRecord`). **Fully non-fatal** — any failure logs and the scrape
+proceeds; it always ESCs back to the lobby in a `finally`. `RankRoster` snaps division names
+(GRANDMASTER tested before MASTER). Known gap: an **unplaced** role's *predicted* division is dim gray
+(not white) and OCRs to garbage → stored `Division="Unknown"` (placement + `IsRanked=false` still
+captured correctly), so a debug frame is saved only when a *ranked* card fails to resolve. Verified
+end-to-end live (3 ranked roles exact: Diamond 5 −2% / Diamond 1 −13% / Master 2 CS2304 −20%).
+**UI:** the Dashboard shows a "COMPETITIVE RANK" strip (latest snapshot, four role cards) and a
+**Rank History** screen plots a "stock-ticker" ladder chart — per-role lines over time on a
+division-banded Y axis (`RankRoster.Score` maps division+tier+progress to a monotonic ladder score;
+each tier = 1.0 unit), plus a ticker tape of current standing + Δ since the previous capture. The
+custom `Controls/RankTicker.cs` (OnRender, like `Sparkline`/`ActivityTrack`) auto-fits Y to the
+data's division range. `RankHistoryViewModel` builds the chart from `IRankRepository.GetAllAsync`.
 
 ### OCR calibration — read this before touching OCR
 
@@ -229,19 +265,31 @@ OCR is fragile and was tuned empirically against real 2560×1440 screenshots. Ha
 - **Hero playtimes (my heroes) need no portrait classifier, all read from the Personal tab.**
   `ScrapePersonalAllHeroesAsync` opens **ALL HEROES first** and reads the sidebar hero names there
   (`ReadHeroTabName`, snapped to `HeroRoster`) — names must be read from a frame where the hero is
-  NOT the selected/blue-highlighted tab, or they OCR to garbage. The sidebar name is solid **white**
-  on the bright animated menu gradient, so `ReadHeroTabName` reads it via the **white-text mask**
-  (`ReadRegionWhiteText`, white-first then plain fallback) — same fix as map names; the plain LSTM
-  garbles "KIRIKO"→"| '4|*d]| Co" on bright frames. The ALL HEROES button's Y gives the slot range,
-  but **hero count = filled sidebar slots** (`ScreenDetector.PersonalSlotHasHero`, white-name-text
-  pixels), NOT `allHeroesSlot − 1` — the blank spacer pill before ALL HEROES is inconsistent (present
-  with several heroes, absent with one), so the old formula dropped the only hero of a 1-hero match.
+  NOT the selected/blue-highlighted tab, or they OCR to garbage. The ALL HEROES click sometimes
+  doesn't register (leaving slot 0 selected → garbage name AND non-combined stats → broken IsMe
+  fingerprint), so the scraper **confirms the view actually landed** via
+  `ScreenDetector.IsSidebarSlotSelected` (the selected pill is bright blue) and re-clicks until ALL
+  HEROES is the selected tab. The sidebar name is solid **white** on the bright animated menu
+  gradient, so `ReadHeroTabName` reads it via the **white-text mask** (`ReadRegionWhiteText`) — same
+  fix as map names; the plain LSTM garbles "KIRIKO"→"| '4|*d]| Co" on bright frames. It tries the
+  mask at **3×/4×/2× upscales** (an accented "LÚCIO" reads "Ico" at 3× but "Lclo" at 4×), and
+  `HeroRoster.Snap` has a **Levenshtein fallback** for glyph-corrupted reads the substring/LCS pass
+  misses — recovers "Lclo"→Lúcio and a selected-tab "SO .IOUIRN"→Sojourn, while leaving short/
+  ambiguous reads (e.g. "Ico", closer to Echo) Unknown. The ALL HEROES button's Y gives the slot
+  range, but **hero count = filled sidebar slots** (`ScreenDetector.PersonalSlotHasHero`, ≥300
+  white-name-text px — a blank spacer reads ≤168, a name 666+), NOT `allHeroesSlot − 1`: the blank
+  spacer pill before ALL HEROES is inconsistent (present with several heroes, absent with one), so
+  the old formula dropped the only hero of a 1-hero match. `Personal_MaxHeroTabs` (the loop's safety
+  cap) is **8** — at 5 it silently dropped the 6th hero of a 6-hero match.
   The combined-stat cards (`ExtractPersonalAllHeroes`) are semi-transparent over the gradient, so
   DMG/HEAL/MIT and the E/A/D band are read via the **white-text mask** too (plain read gave
   "18,033"→"[RKO KK" on a bright frame → DMG 0 → IsMe couldn't be fingerprinted by DMG).
   It then **clicks through each real-hero slot** (skipping blank spacers) and reads
-  its `PLAY TIME` (`ExtractHeroPlayTime`, `Personal_HeroPlayTime` ROI) — capturing EVERY hero
-  played, not just the top-3 the Summary cards show. Stored as the IsMe player's `HeroPlaytimes`; slot 0 (highest
+  its `PLAY TIME` (`ExtractHeroPlayTime`, `Personal_HeroPlayTime` ROI) via the **white-text mask**
+  too (the value is white-on-gradient like the names — a plain read garbles "00:55"→"(003.7)" → a
+  false 00:00; the ROI was always correct). A played hero is never 0:00, so a zero read triggers a
+  settle-retry + a debug frame. This captures EVERY hero played, not just the top-3 the Summary
+  cards show. Stored as the IsMe player's `HeroPlaytimes`; slot 0 (highest
   play-time) becomes `EndingHero`. (The Summary "Heroes Played" cards' italic names are
   unreadable, so they're no longer used for this.) The portrait classifier (`heroNames` dict) is
   still only the *other* players' ending hero (stub → Unknown). **The hero roster is user-editable**:
@@ -255,7 +303,12 @@ OCR is fragile and was tuned empirically against real 2560×1440 screenshots. Ha
   `teams-verify-*.txt` and now also dumps the real `ExtractTeams` strip-reader output.)
 - Large italic fonts (VICTORY/DEFEAT) OCR poorly → outcome uses fuzzy first-letters + score
   fallback. Multi-line info boxes are read as ONE block + regex per field. `|`→`1` digit
-  normalisation in number parsers.
+  normalisation in number parsers. **Shutout-loss caveat (`ParseScore`/`ParseOutcome`):** the
+  "FINAL SCORE: X VS Y" font reads a leading `0` as the letter `O` ("0 VS 2"→"O VS 2"), so the
+  score line maps digit look-alikes (`O/Q`→`0`, `I/l`→`1`) within itself before matching. When
+  BOTH the banner and the score are unreadable, the outcome is `UNKNOWN`, NOT `DRAW` — a fabricated
+  0–0 was silently mislabeling every shutout loss as a draw. A true 0–0 (rare but real) still maps
+  to `DRAW` only when the score was actually read as equal.
 - Sidebar/selected items with highlight backgrounds OCR badly — match on partial tokens
   (`REPORTS` not `GAME REPORTS`) and exclude the icon column.
 - **Map names** read from the Summary header (solid white bold caps, `Summary_MapName` ROI,
@@ -284,6 +337,10 @@ coordinates and are expected to be edited/run iteratively, not kept green foreve
 `owtracker.db` (SQLite), `tessdata/eng.traineddata` (auto-downloaded), `scrape.log` (rewritten
 each scrape run — primary debugging tool), `debug_*.png` (frames saved when a screen is
 `Unknown` or a selection box isn't found), `error.log`, `crops/`.
+
+Set the **`OWTRACKER_DATA_DIR`** env var to override this root (`AppPaths.Root`) — points the whole
+app (DB, tessdata, debug, logs) at an isolated folder, for testing against a seeded/throwaway DB
+without touching live data. Unset = the default `%APPDATA%\OwTracker\`.
 
 ## Conventions
 

@@ -53,6 +53,19 @@ public sealed record PersonalStats(
 /// Personal sub-tab.</summary>
 public sealed record HeroPlayData(string HeroName, TimeSpan PlayTime);
 
+/// <summary>One role's standing parsed from a card on the COMPETITIVE PROGRESS screen.
+/// See <see cref="OwTracker.Core.Models.RoleRank"/> for field semantics.</summary>
+public sealed record RoleRankData(
+    string Role,
+    string Division,            // "Bronze".."Champion" | "Unranked" | "Unknown"
+    int    Tier,                // 1..5, 0 if none
+    int?   RankProgress,        // percent (-x..100), null if not shown
+    int?   ChallengerScore,     // Master+ only
+    bool   IsRanked,            // false → predicted/placement
+    int?   PlacementGames,      // e.g. 1 of "1/10"
+    int?   PlacementRequired,   // e.g. 10 of "1/10"
+    string RawText);
+
 // ── OcrEngine ─────────────────────────────────────────────────────────────────
 
 /// <summary>
@@ -354,6 +367,95 @@ public sealed class OcrEngine : IDisposable
         // the white-text mask first; fall back to the plain read only if the masked read won't parse.
         var white = ParseTimeSpan(ReadRegionWhiteText(screen, UiCoordinates.Personal_HeroPlayTime));
         return white > TimeSpan.Zero ? white : ParseTimeSpan(ReadRegion(screen, UiCoordinates.Personal_HeroPlayTime));
+    }
+
+    /// <summary>
+    /// Reads the four role cards (Tank / Damage / Support / Open Queue) from the COMPETITIVE PROGRESS
+    /// screen. Each card's rank block is OCR'd as one multi-line block and parsed by
+    /// <see cref="ParseRankCard"/>; the role is taken from the card's position, not OCR.
+    /// </summary>
+    public IReadOnlyList<RoleRankData> ExtractCompetitiveProgress(Bitmap screen)
+    {
+        var cards = new List<RoleRankData>(RankRoster.Roles.Count);
+        for (var i = 0; i < RankRoster.Roles.Count; i++)
+        {
+            var raw = ReadRegionBlock(screen, UiCoordinates.CompProgress_Card(i));
+            cards.Add(ParseRankCard(RankRoster.Roles[i], raw));
+        }
+        return cards;
+    }
+
+    /// <summary>
+    /// Parses one rank card's OCR block into structured data. Public/static for unit testing against
+    /// captured raw strings. Handles the variants seen on the COMPETITIVE PROGRESS screen:
+    ///   ranked role       → "DIAMOND 5" + "RANK PROGRESS: -2%"
+    ///   Master+ role      → "MASTER 2" + "CHALLENGER SCORE: 2,284" + "RANK PROGRESS: 4%"
+    ///   unplaced Open Q   → "PREDICTED RANK" + "GOLD 1" + "UNRANKED" + "PLACEMENT PROGRESS: 1/10"
+    /// </summary>
+    public static RoleRankData ParseRankCard(string role, string rawBlock)
+    {
+        var raw = (rawBlock ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
+        var up  = raw.ToUpperInvariant();
+
+        // Division + tier: scan for the canonical division keyword, then the 1–5 tier digit that
+        // immediately follows it ("DIAMOND 5", "MASTER 2", "GOLD 1"). The OCR may split them with
+        // noise, so allow a short non-digit gap before the tier.
+        var division = "Unknown";
+        var tier     = 0;
+        foreach (var d in RankRoster.Divisions)
+        {
+            // Try the snap on each whitespace token so a keyword mid-string is still found, then read
+            // the tier from the text right after the matched division word.
+            var idx = up.IndexOf(d.ToUpperInvariant(), StringComparison.Ordinal);
+            var snapped = idx >= 0 ? d : null;
+            if (snapped is null) continue;
+            division = snapped;
+            var after = up[(idx + d.Length)..];
+            var tm = Regex.Match(after, @"\s*([1-5])");
+            if (tm.Success) tier = int.Parse(tm.Groups[1].Value);
+            break;
+        }
+        // Fallback: let the fuzzy snapper try the whole string if no exact keyword matched.
+        if (division == "Unknown")
+        {
+            var snap = RankRoster.SnapDivision(up);
+            if (snap is not null)
+            {
+                division = snap;
+                var tm = Regex.Match(up, @"([1-5])");
+                if (tm.Success) tier = int.Parse(tm.Groups[1].Value);
+            }
+        }
+
+        // Unplaced roles show the literal "UNRANKED" (the division above it is a *prediction*).
+        var isRanked = !up.Contains("UNRANK");
+
+        // Placement progress "1/10" (unplaced roles).
+        int? placeGames = null, placeReq = null;
+        var pm = Regex.Match(up, @"PLACE\w*\s*PROGRESS[:\s]*?(\d+)\s*/\s*(\d+)");
+        if (!pm.Success) pm = Regex.Match(up, @"(\d+)\s*/\s*(\d+)");   // bare "1/10"
+        if (pm.Success)
+        {
+            placeGames = int.Parse(pm.Groups[1].Value);
+            placeReq   = int.Parse(pm.Groups[2].Value);
+        }
+
+        // Rank progress percentage (can be negative, e.g. "-2%").
+        int? progress = null;
+        var rp = Regex.Match(NormaliseOcrNoise(up), @"(-?\d+)\s*%");
+        if (rp.Success) progress = int.Parse(rp.Groups[1].Value);
+
+        // Challenger Score (Master+ only): "CHALLENGER SCORE: 2,284".
+        int? challenger = null;
+        var cm = Regex.Match(up, @"CHALL\w*\s*SCORE[:\s]*?([\d,]+)");
+        if (cm.Success)
+        {
+            var digits = cm.Groups[1].Value.Replace(",", "");
+            if (int.TryParse(digits, out var cs)) challenger = cs;
+        }
+
+        return new RoleRankData(role, division, tier, progress, challenger, isRanked,
+                                placeGames, placeReq, raw);
     }
 
     /// <summary>Left-/right-column X centres of the All-Heroes value cards (2560×1440).</summary>
