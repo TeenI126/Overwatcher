@@ -31,7 +31,20 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private bool     _ignoreDuplicates;
     [ObservableProperty] private bool     _overwriteOnDuplicate;
 
-    // ── Overview KPIs ──────────────────────────────────────────────────────
+    // ── Queue filter (which queue the overview stats are computed over) ─────
+    private const string AllQueues = "all";
+
+    /// <summary>Queue choices: "All queues" + the four game-mode labels (Comp Role/Open, Unranked,
+    /// Quick Play). Mirrors the Stored Games game-mode filter.</summary>
+    public IReadOnlyList<FilterOption> QueueOptions { get; } =
+        new[] { new FilterOption(AllQueues, "All queues") }
+            .Concat(StatsService.GameModes.Select(g => new FilterOption(g, g))).ToList();
+
+    /// <summary>Selected queue; defaults to Competitive Role Queue. Recomputes the stats on change.</summary>
+    [ObservableProperty] private string _queueFilter = "Comp · Role Queue";
+
+    // ── Overview KPIs (over the queue-filtered set) ────────────────────────
+    [ObservableProperty] private int      _filteredGames;
     [ObservableProperty] private double   _winRate;
     [ObservableProperty] private double   _trackedPlaytimeHours;
     [ObservableProperty] private int      _todayWins;
@@ -121,9 +134,24 @@ public sealed partial class DashboardViewModel : ObservableObject
         MatchCount      = await _matchRepository.CountAsync();
         TotalActiveTime = await _sessionRepository.GetTotalActiveTimeAsync();
 
-        var matches = await _matchRepository.GetAllWithDetailsAsync();
+        _allMatches = await _matchRepository.GetAllWithDetailsAsync();
+        RecomputeStats();
+
+        await RefreshRankAsync();
+    }
+
+    /// <summary>All loaded matches (cached so the queue filter recomputes in-memory, no DB re-query).</summary>
+    private IReadOnlyList<MatchRecord> _allMatches = System.Array.Empty<MatchRecord>();
+
+    /// <summary>Re-derives every overview stat from the cached matches filtered to the selected queue.</summary>
+    private void RecomputeStats()
+    {
+        var matches = QueueFilter == AllQueues
+            ? _allMatches
+            : _allMatches.Where(m => StatsService.GameModeLabel(m) == QueueFilter).ToList();
 
         var overall = StatsService.Overall(matches);
+        FilteredGames        = overall.Games;
         WinRate              = overall.WinRate;
         TrackedPlaytimeHours = Math.Round(overall.Time.TotalHours, 1);
 
@@ -145,9 +173,9 @@ public sealed partial class DashboardViewModel : ObservableObject
         TopHero    = StatsService.TopHero(matches, minGames: 3);
         TopMap     = StatsService.TopMap(matches, minGames: 3);
         MostPlayed = StatsService.MostPlayedHero(matches);
-
-        await RefreshRankAsync();
     }
+
+    partial void OnQueueFilterChanged(string value) => RecomputeStats();
 
     /// <summary>Loads the most recent competitive-rank snapshot for the Dashboard rank strip.</summary>
     private async Task RefreshRankAsync()

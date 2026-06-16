@@ -18,6 +18,11 @@
         <conv:InverseBoolToVisibilityConverter x:Key="NotVis" />
         <conv:ModeToBrushConverter x:Key="ModeBrush" />
         <local:BoolToTextConverter x:Key="BoolText" />
+
+        <!-- Queue filter dropdown option: show the friendly label -->
+        <DataTemplate x:Key="FilterOptionTemplate">
+            <TextBlock Text="{Binding Label}" Foreground="{StaticResource TextBrush}" />
+        </DataTemplate>
     </UserControl.Resources>
 
     <Grid>
@@ -35,25 +40,31 @@
                         <TextBlock Text="collector &amp; overview" Style="{StaticResource Crumb}"
                                    VerticalAlignment="Bottom" Margin="12,0,0,3" />
                     </StackPanel>
-                    <Border DockPanel.Dock="Right" HorizontalAlignment="Right" Style="{StaticResource Inset}"
-                            ctrl:NotchClip.TopRight="9" Padding="12,7">
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="7" Height="7" VerticalAlignment="Center" Fill="{StaticResource WinBrush}" />
-                            <TextBlock Text="Overwatch detected" Margin="8,0,0,0" FontWeight="SemiBold"
-                                       FontSize="12.5" VerticalAlignment="Center" />
-                            <TextBlock Text="· ready to scrape" Margin="5,0,0,0" Foreground="{StaticResource MutedBrush}"
-                                       FontSize="12.5" VerticalAlignment="Center"
-                                       Visibility="{Binding Watcher.IsOwRunning, Converter={StaticResource BoolVis}}" />
-                        </StackPanel>
-                    </Border>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock Text="QUEUE" Style="{StaticResource MicroLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <ComboBox Style="{StaticResource HudCombo}" ItemContainerStyle="{StaticResource HudComboItem}"
+                                  Width="150" VerticalAlignment="Center" Margin="0,0,14,0"
+                                  ItemTemplate="{StaticResource FilterOptionTemplate}" SelectedValuePath="Value"
+                                  ItemsSource="{Binding QueueOptions}" SelectedValue="{Binding QueueFilter}" />
+                        <Border Style="{StaticResource Inset}" ctrl:NotchClip.TopRight="9" Padding="12,7">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="7" Height="7" VerticalAlignment="Center" Fill="{StaticResource WinBrush}" />
+                                <TextBlock Text="Overwatch detected" Margin="8,0,0,0" FontWeight="SemiBold"
+                                           FontSize="12.5" VerticalAlignment="Center" />
+                                <TextBlock Text="· ready to scrape" Margin="5,0,0,0" Foreground="{StaticResource MutedBrush}"
+                                           FontSize="12.5" VerticalAlignment="Center"
+                                           Visibility="{Binding Watcher.IsOwRunning, Converter={StaticResource BoolVis}}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
                 </DockPanel>
 
                 <!-- KPI row -->
                 <UniformGrid Rows="1" Columns="5" Margin="0,14,0,0">
                     <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
                         <StackPanel>
-                            <TextBlock Text="{Binding MatchCount}" Style="{StaticResource KpiValue}" />
-                            <TextBlock Text="Games tracked" Style="{StaticResource KpiKey}" />
+                            <TextBlock Text="{Binding FilteredGames}" Style="{StaticResource KpiValue}" />
+                            <TextBlock Text="Games in queue" Style="{StaticResource KpiKey}" />
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource KpiTile}" Margin="0,0,10,0">
