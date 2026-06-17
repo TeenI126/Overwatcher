@@ -72,7 +72,29 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
-    internal const int SW_RESTORE = 9;
+    [DllImport("user32.dll")]
+    internal static extern IntPtr SetActiveWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsIconic(IntPtr hWnd);
+
+    // SystemParametersInfo — used to read/zero the foreground-lock timeout so a background process
+    // is allowed to reassign foreground (the standard SetForegroundWindow reliability fix).
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SystemParametersInfo(uint uiAction, uint uiParam, ref uint pvParam, uint fWinIni);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SystemParametersInfo(uint uiAction, uint uiParam, IntPtr pvParam, uint fWinIni);
+
+    internal const int  SW_SHOW    = 5;
+    internal const int  SW_RESTORE = 9;
+
+    internal const uint SPI_GETFOREGROUNDLOCKTIMEOUT = 0x2000;
+    internal const uint SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001;
+    internal const uint SPIF_SENDCHANGE              = 0x0002;
 
     // ── Input injection (SendInput) ───────────────────────────────────────
 
@@ -183,11 +205,13 @@ internal static class NativeMethods
     }
 
     /// <summary>
-    /// Finds the first visible top-level window whose title contains
-    /// <paramref name="titleMarker"/> (case-insensitive). Returns <see cref="IntPtr.Zero"/>
-    /// if not found.
+    /// Finds the first visible top-level window whose title satisfies <paramref name="matches"/>.
+    /// Returns <see cref="IntPtr.Zero"/> if none. The predicate is shared with the foreground
+    /// check (<see cref="OverwatchWatcher.IsOwTitle"/>) so background detection and session
+    /// timing agree on what counts as the OW window — notably both reject the tracker's own
+    /// "Overwatcher" window, which a substring match used to treat as the game.
     /// </summary>
-    internal static IntPtr FindWindowByTitleMarker(string titleMarker)
+    internal static IntPtr FindWindow(Func<string, bool> matches)
     {
         var result = IntPtr.Zero;
         EnumWindows((hwnd, _) =>
@@ -197,7 +221,7 @@ internal static class NativeMethods
             if (len <= 0) return true;
             var sb = new StringBuilder(len + 1);
             GetWindowText(hwnd, sb, sb.Capacity);
-            if (sb.ToString().Contains(titleMarker, StringComparison.OrdinalIgnoreCase))
+            if (matches(sb.ToString()))
             {
                 result = hwnd;
                 return false; // stop enumeration
@@ -208,27 +232,59 @@ internal static class NativeMethods
     }
 
     /// <summary>
-    /// Reliably brings a window to the foreground by temporarily attaching to its
-    /// input thread. Works even when called from a non-foreground process.
+    /// Reliably brings a window to the foreground from a background process. Windows normally
+    /// only lets the *active* process reassign foreground, so a plain SetForegroundWindow from a
+    /// background app silently no-ops (the old single-attempt version "worked" intermittently for
+    /// exactly this reason). To satisfy the rules we:
+    ///   1. zero the foreground-lock timeout (SPI_SETFOREGROUNDLOCKTIMEOUT) so the call is allowed;
+    ///   2. attach our input queue to BOTH the current-foreground and the target threads, so
+    ///      Windows treats the focus change as coming from the active input context;
+    ///   3. SetForegroundWindow + SetActiveWindow + BringWindowToTop, retried a few times because
+    ///      the change can lag and the first call after an attach often only "primes" the next.
+    /// Everything restored/detached afterwards. BattleEye-safe: standard window management only,
+    /// no OW process/memory interaction.
     /// </summary>
     internal static bool ForceForeground(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero) return false;
-        ShowWindow(hwnd, SW_RESTORE);
+        if (GetForegroundWindow() == hwnd) return true;   // already there
 
-        var foreHwnd   = GetForegroundWindow();
-        var foreThread = GetWindowThreadProcessId(foreHwnd, out _);
-        var ourThread  = GetCurrentThreadId();
+        // Restore if minimised, otherwise just ensure it's shown (don't minimise/restore a
+        // borderless game — that can flip its display mode).
+        ShowWindow(hwnd, IsIconic(hwnd) ? SW_RESTORE : SW_SHOW);
+
+        // 1. Temporarily zero the foreground-lock timeout.
+        uint origTimeout = 0;
+        var readTimeout = SystemParametersInfo(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, ref origTimeout, 0);
+        if (readTimeout)
+            SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, IntPtr.Zero, SPIF_SENDCHANGE);
+
+        // 2. Attach our input to the foreground and target threads.
+        var foreHwnd     = GetForegroundWindow();
+        var foreThread   = GetWindowThreadProcessId(foreHwnd, out _);
+        var ourThread    = GetCurrentThreadId();
         var targetThread = GetWindowThreadProcessId(hwnd, out _);
 
-        if (foreThread != ourThread)
-            AttachThreadInput(ourThread, foreThread, true);
+        var attachedFore   = foreThread   != ourThread  && AttachThreadInput(ourThread, foreThread, true);
+        var attachedTarget = targetThread != ourThread  && targetThread != foreThread
+                                                        && AttachThreadInput(ourThread, targetThread, true);
 
-        BringWindowToTop(hwnd);
-        SetForegroundWindow(hwnd);
+        // 3. Reassign foreground, retrying until it takes (or we give up).
+        var ok = false;
+        for (var i = 0; i < 5 && !ok; i++)
+        {
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+            SetActiveWindow(hwnd);
+            ok = GetForegroundWindow() == hwnd;
+            if (!ok) System.Threading.Thread.Sleep(60);
+        }
 
-        if (foreThread != ourThread)
-            AttachThreadInput(ourThread, foreThread, false);
+        // Restore state.
+        if (attachedTarget) AttachThreadInput(ourThread, targetThread, false);
+        if (attachedFore)   AttachThreadInput(ourThread, foreThread, false);
+        if (readTimeout)
+            SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, new IntPtr((int)origTimeout), SPIF_SENDCHANGE);
 
         return GetForegroundWindow() == hwnd;
     }

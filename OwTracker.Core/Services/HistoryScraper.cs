@@ -81,9 +81,15 @@ public sealed class HistoryScraper
     /// overwrites, a normal scrape does not — preserving the CLI behaviour; the dashboard passes an
     /// explicit value via its "overwrite on duplicate" toggle.
     /// </param>
+    /// <param name="captureRank">
+    /// When true (default), the run first snapshots the player's competitive rank (COMPETITIVE
+    /// PROGRESS) before walking the match list. Set false to skip it — the rank nav adds ~10–15 s
+    /// and can land on the wrong screen, so a match-only scrape can opt out via the dashboard
+    /// "capture rank" toggle / the CLI <c>--no-rank</c> flag.
+    /// </param>
     public async Task<ScrapeResult> ScrapeAsync(
         CancellationToken ct = default, int? maxGames = null, bool stopOnDuplicates = true,
-        int startIndex = 0, bool? overwrite = null)
+        int startIndex = 0, bool? overwrite = null, bool captureRank = true)
     {
         startIndex   = Math.Clamp(startIndex, 0, MaxGames - 1);
         var endIndex = Math.Min(startIndex + (maxGames ?? MaxGames), MaxGames);
@@ -105,7 +111,11 @@ public sealed class HistoryScraper
 
         // Capture the player's competitive rank ONCE at the start of the run (game reports don't show
         // it). Non-fatal: a failure logs and the scrape proceeds to the match history regardless.
-        await CaptureRankAsync(ct);
+        // Skippable via the "capture rank" toggle / --no-rank.
+        if (captureRank)
+            await CaptureRankAsync(ct);
+        else
+            Log("Skipping competitive rank capture (disabled).");
 
         Log("Navigating to Game Reports list…");
         // Retry navigation a few times: when launched while a screen is still loading (e.g. the

@@ -58,7 +58,7 @@ public sealed partial class OverwatchWatcher : ObservableObject, IDisposable
         : this(sessionRepository,
                () => DateTime.UtcNow,
                () => (NativeMethods.GetForegroundWindowTitle(), NativeMethods.GetIdleMilliseconds()),
-               () => NativeMethods.FindWindowByTitleMarker(OwWindowTitleMarker))
+               () => NativeMethods.FindWindow(IsOwTitle))
     {
     }
 
@@ -77,9 +77,20 @@ public sealed partial class OverwatchWatcher : ObservableObject, IDisposable
 
     // ── Pure helper methods (testable) ────────────────────────────────────
 
+    /// <summary>
+    /// True if a window title identifies the Overwatch game window. Matches "Overwatch" as a
+    /// WHOLE WORD (case-insensitive) — so it does NOT match substrings like "Overwatcher" (this
+    /// app's own window title is "Overwatcher", which a plain Contains() matched → OW reported as
+    /// running when only the tracker was open). The game window title is exactly "Overwatch"
+    /// ("Overwatch 2" kept the same title), and "Blizzard Overwatch" / "Overwatch 2" still match.
+    /// </summary>
     public static bool IsOwTitle(string? title) =>
-        !string.IsNullOrEmpty(title) &&
-        title.Contains(OwWindowTitleMarker, StringComparison.OrdinalIgnoreCase);
+        !string.IsNullOrEmpty(title) && OwTitleRegex.IsMatch(title);
+
+    private static readonly System.Text.RegularExpressions.Regex OwTitleRegex = new(
+        $@"\b{System.Text.RegularExpressions.Regex.Escape(OwWindowTitleMarker)}\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+        System.Text.RegularExpressions.RegexOptions.Compiled);
 
     public static bool IsActive(long idleMilliseconds) =>
         idleMilliseconds < IdleThreshold.TotalMilliseconds;

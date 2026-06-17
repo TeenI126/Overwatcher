@@ -24,6 +24,7 @@ dotnet test --filter "ScreenDetector_IdentifiesCorrectScreen"   # single test / 
 dotnet run --project OwTracker.App              # run from source (dev)
 publish/OwTracker.App.exe --scrape 10           # HEADLESS scrape of last 10 games, then exit
 publish/OwTracker.App.exe --scrape-deep         # COMPLETE back-fill: whole list, ignore dup-stop
+publish/OwTracker.App.exe --scrape 10 --no-rank # skip the competitive-rank snapshot, matches only
 ```
 
 **Headless CLI scrape (`--scrape [N]`)** runs a scrape with no window and exits (output → `scrape.log`
@@ -134,7 +135,14 @@ plus the kept **Hero Review** and **Settings**.
 it literally drives the game UI like a human and reads pixels back:
 
 1. **`OverwatchWatcher`** — polls window titles via P/Invoke. `IsOwRunning` (OW exists anywhere)
-   gates scraping; `IsOwInForeground` drives session timing. Exposes `OwWindowHandle`.
+   gates scraping; `IsOwInForeground` drives session timing. Exposes `OwWindowHandle`. The OW
+   window is matched by `IsOwTitle` = **"Overwatch" as a whole word** (regex `\bOverwatch\b`), NOT
+   a substring `Contains` — the tracker's own window is titled **"Overwatcher"**, which a substring
+   match falsely detected as the running game (foreground detection AND `NativeMethods.FindWindow`
+   both route through the same predicate). `NativeMethods.ForceForeground` (used by
+   `InputSimulator.BringOwToForeground`, retried 4×) zeros `SPI_SETFOREGROUNDLOCKTIMEOUT` + attaches
+   to both the foreground and target input threads before `SetForegroundWindow`, because a plain
+   call from a background process silently no-ops (the cause of the old intermittent focus failures).
 2. **`InputSimulator`** (`IInputSimulator`) — Win32 `SendInput`. `BringOwToForeground` uses the
    `AttachThreadInput` trick. **Keys are sent as hardware scancodes, not virtual-key codes** —
    OW's menu arrows accept virtual keys but action keys (Space = "select") only register as
@@ -172,6 +180,8 @@ so it's counted as a duplicate, not new.
 **Competitive rank capture (`HistoryScraper.CaptureRankAsync`)** runs ONCE at the start of every
 scrape, before the match loop — game reports don't show the player's rank, and it shifts after each
 competitive game (per the queued role / open queue), so each run snapshots the current standing.
+**Skippable** via `ScrapeAsync(captureRank: false)` — surfaced as the Dashboard "Capture rank"
+toggle (default on) and the CLI `--no-rank` flag, so a match-only scrape can avoid the rank nav.
 Navigation (`NavigateToCompetitiveProgressAsync`, all `CompProgress_*` coords **live-calibrated** at
 2560×1440): unwind to **HOME** (detected by the `HEROES`/`EVENTS` top-nav fingerprint — needed to
 stop the ESC loop oscillating home↔escape-menu) → click **PLAY** (the blue pill centres at ≈(1280,52),
