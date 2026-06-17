@@ -25,7 +25,16 @@ public sealed class InputSimulator : IInputSimulator
     {
         var hwnd = _watcher.OwWindowHandle;
         if (hwnd == IntPtr.Zero) return false;
-        return NativeMethods.ForceForeground(hwnd);
+
+        // Retry a few times: focus reassignment from a background process can need a couple of
+        // tries (OW may still be settling, or the first attempt only "primes" the next). Each
+        // ForceForeground call already retries internally; this adds a longer-spaced outer loop.
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            if (NativeMethods.ForceForeground(hwnd)) return true;
+            System.Threading.Thread.Sleep(150);
+        }
+        return false;
     }
 
     // ── High-level helpers ────────────────────────────────────────────────

@@ -48,6 +48,7 @@ public partial class App : Application
         //                       or reach old games e.g. 6v6) and save every Teams frame.
         // "--from K"          : start the row counter at game K (jump past the first K games) —
         //                       e.g. "--scrape-deep --from 44" reaches the 6v6 cluster fast.
+        // "--no-rank"         : skip the competitive-rank snapshot, scrape matches only.
         var deepIdx   = Array.FindIndex(e.Args, a => a.Equals("--scrape-deep", StringComparison.OrdinalIgnoreCase));
         var scrapeIdx = deepIdx >= 0 ? deepIdx
                       : Array.FindIndex(e.Args, a => a.Equals("--scrape", StringComparison.OrdinalIgnoreCase));
@@ -58,9 +59,10 @@ public partial class App : Application
             var fromIdx = Array.FindIndex(e.Args, a => a.Equals("--from", StringComparison.OrdinalIgnoreCase));
             var start   = fromIdx >= 0 && fromIdx + 1 < e.Args.Length && int.TryParse(e.Args[fromIdx + 1], out var s)
                 ? s : 0;
+            var captureRank = Array.FindIndex(e.Args, a => a.Equals("--no-rank", StringComparison.OrdinalIgnoreCase)) < 0;
             ShutdownMode = ShutdownMode.OnExplicitShutdown;  // stay alive until the scrape finishes
             AttachConsole(ATTACH_PARENT_PROCESS);            // best-effort: echo to the caller's console
-            _ = RunHeadlessScrapeAsync(max, stopOnDuplicates: deepIdx < 0, startIndex: start);
+            _ = RunHeadlessScrapeAsync(max, stopOnDuplicates: deepIdx < 0, startIndex: start, captureRank: captureRank);
             return;
         }
 
@@ -92,7 +94,8 @@ public partial class App : Application
     }
 
     /// <summary>Runs a scrape with no UI and exits the process (exit code 0 = success).</summary>
-    private async Task RunHeadlessScrapeAsync(int? maxGames, bool stopOnDuplicates = true, int startIndex = 0)
+    private async Task RunHeadlessScrapeAsync(int? maxGames, bool stopOnDuplicates = true, int startIndex = 0,
+        bool captureRank = true)
     {
         var exitCode = 0;
         try
@@ -127,9 +130,11 @@ public partial class App : Application
             var scraper = _services.GetRequiredService<HistoryScraper>();
             scraper.LogLine += Echo;
             Echo($"=== CLI scrape (limit {(maxGames?.ToString() ?? "none")}, " +
-                 $"{(stopOnDuplicates ? "stop-on-dupes" : "deep")}, from {startIndex}) ===");
+                 $"{(stopOnDuplicates ? "stop-on-dupes" : "deep")}, from {startIndex}" +
+                 $"{(captureRank ? "" : ", no-rank")}) ===");
             var result = await scraper.ScrapeAsync(
-                maxGames: maxGames, stopOnDuplicates: stopOnDuplicates, startIndex: startIndex);
+                maxGames: maxGames, stopOnDuplicates: stopOnDuplicates, startIndex: startIndex,
+                captureRank: captureRank);
             Echo(result.Success
                 ? $"Done. New={result.NewRecords}, duplicates={result.SkippedDuplicates}"
                 : $"Failed: {result.ErrorMessage}");

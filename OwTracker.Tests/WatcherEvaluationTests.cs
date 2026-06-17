@@ -10,9 +10,13 @@ public class WatcherEvaluationTests
     [InlineData("Overwatch 2", true)]
     [InlineData("Blizzard Overwatch", true)]
     [InlineData("Notepad", false)]
+    // Whole-word match: must NOT match substrings — notably the tracker's own "Overwatcher"
+    // window, which a plain Contains() falsely reported as the running game.
+    [InlineData("Overwatcher", false)]
+    [InlineData("Overwatcher - main", false)]
     [InlineData("", false)]
     [InlineData(null, false)]
-    public void IsOwTitle_MatchesCaseInsensitiveSubstring(string? title, bool expected)
+    public void IsOwTitle_MatchesOverwatchAsWholeWord(string? title, bool expected)
         => Assert.Equal(expected, OverwatchWatcher.IsOwTitle(title));
 
     [Theory]

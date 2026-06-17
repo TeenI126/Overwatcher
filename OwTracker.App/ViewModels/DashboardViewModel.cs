@@ -31,6 +31,10 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private bool     _ignoreDuplicates;
     [ObservableProperty] private bool     _overwriteOnDuplicate;
 
+    /// <summary>When true (default), a scrape snapshots competitive rank before the match loop.
+    /// Off = skip rank capture and go straight to scraping games.</summary>
+    [ObservableProperty] private bool     _captureRank = true;
+
     // ── Queue filter (which queue the overview stats are computed over) ─────
     private const string AllQueues = "all";
 
@@ -245,7 +249,8 @@ public sealed partial class DashboardViewModel : ObservableObject
         try
         {
             var result = await _scraper.ScrapeAsync(
-                maxGames: maxGames, stopOnDuplicates: !IgnoreDuplicates, overwrite: OverwriteOnDuplicate);
+                maxGames: maxGames, stopOnDuplicates: !IgnoreDuplicates, overwrite: OverwriteOnDuplicate,
+                captureRank: CaptureRank);
             ScrapeLog.Add(result.Success
                 ? $"[{DateTime.Now:HH:mm:ss}] Completed — {result.NewRecords} new, {result.SkippedDuplicates} duplicates."
                 : $"[{DateTime.Now:HH:mm:ss}] Failed: {result.ErrorMessage}");
