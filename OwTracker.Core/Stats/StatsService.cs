@@ -48,6 +48,7 @@ public static class StatsService
     {
         var r = (m.RankingMode ?? string.Empty).ToUpperInvariant();
         if (r.Contains("COMP")) return "COMPETITIVE";
+        if (r.Contains("STADI")) return "STADIUM";
         if (r.Contains("UNRANK")) return "UNRANKED";
         return "QUICK PLAY";
     }
@@ -55,19 +56,26 @@ public static class StatsService
     public static bool IsCompetitive(MatchRecord m) =>
         (m.RankingMode ?? string.Empty).ToUpperInvariant().Contains("COMP");
 
+    public static bool IsStadium(MatchRecord m) =>
+        (m.RankingMode ?? string.Empty).ToUpperInvariant().Contains("STADI");
+
     /// <summary>Game-mode label combining ranking tier and queue (matches the Mode filter).</summary>
     public static string GameModeLabel(MatchRecord m)
     {
+        // Stadium is its own game mode (no role/open-queue split, and not Quick Play) — check it
+        // before the comp/quick fallbacks so its matches bucket as "Stadium" rather than collapsing
+        // into "Quick Play". Its QueueType OCR is unreliable bleed from the adjacent list row anyway.
+        if (IsStadium(m)) return "Stadium";
         if (IsCompetitive(m))
             return (m.QueueType ?? string.Empty).ToUpperInvariant().Contains("OPEN")
                 ? "Comp · Open Queue" : "Comp · Role Queue";
         return RankTag(m) == "UNRANKED" ? "Unranked" : "Quick Play";
     }
 
-    /// <summary>The four game-mode labels, in display order (for the Mode dropdown).</summary>
+    /// <summary>The game-mode labels, in display order (for the Mode dropdown).</summary>
     public static readonly IReadOnlyList<string> GameModes = new[]
     {
-        "Comp · Role Queue", "Comp · Open Queue", "Unranked", "Quick Play",
+        "Comp · Role Queue", "Comp · Open Queue", "Stadium", "Unranked", "Quick Play",
     };
 
     private static bool IsWin(MatchRecord m) => m.Outcome == MatchOutcome.Win;

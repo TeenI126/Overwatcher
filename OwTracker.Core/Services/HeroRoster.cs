@@ -31,7 +31,7 @@ public static class HeroRoster
         "Ana", "Baptiste", "Brigitte", "Illari", "Juno", "Kiriko", "Lifeweaver", "Lúcio",
         "Mercy", "Moira", "Zenyatta",
         // Newer heroes added from the live in-game roster (the lists above lag real releases).
-        "Mizuki", "Domina", "Anran", "Emre", "Sierra", "Jetpack Cat", "Wuyang", "Freja",
+        "Mizuki", "Domina", "Anran", "Emre", "Sierra", "Jetpack Cat", "Wuyang", "Freja", "Shion",
     };
 
     /// <summary>User-editable roster file (merged with the built-in defaults).</summary>
@@ -96,7 +96,7 @@ public static class HeroRoster
         ["Genji"] = "damage", ["Hanzo"] = "damage", ["Junkrat"] = "damage", ["Mei"] = "damage",
         ["Pharah"] = "damage", ["Reaper"] = "damage", ["Sojourn"] = "damage", ["Soldier: 76"] = "damage",
         ["Sombra"] = "damage", ["Symmetra"] = "damage", ["Torbjörn"] = "damage", ["Tracer"] = "damage",
-        ["Venture"] = "damage", ["Widowmaker"] = "damage",
+        ["Venture"] = "damage", ["Widowmaker"] = "damage", ["Shion"] = "damage",
         // Support
         ["Ana"] = "support", ["Baptiste"] = "support", ["Brigitte"] = "support", ["Illari"] = "support",
         ["Juno"] = "support", ["Kiriko"] = "support", ["Lifeweaver"] = "support", ["Lúcio"] = "support",

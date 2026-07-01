@@ -121,6 +121,82 @@ public sealed class ScreenDetector
     public Point? FindCompetitiveTab(Bitmap b) =>
         _ocr.FindTextCenter(b, "OMPE", PlayMenuTabs(b));
 
+    /// <summary>
+    /// Locates the PROGRESS button (the 2nd of the small icon tiles) on the COMPETITIVE lobby. Its
+    /// vertical position DRIFTS between layouts — the count/height of the queue-mode buttons above it
+    /// changes between seasons / competitive drives / placements — so a fixed Y misses it (it was
+    /// calibrated at y≈1035 but renders ~140 px higher in other layouts). The button is icon-only
+    /// (no text to OCR), so we anchor on geometry instead: the icon tiles are a horizontal strip of
+    /// bright-WHITE notched squares sitting just below the RED queue-mode buttons. Find the bottom of
+    /// the red buttons → the white-tile strip below them → return the 2nd tile's centre. Returns null
+    /// if the layout can't be read (caller falls back to <see cref="UiCoordinates.CompProgress_ProgressButton"/>).
+    /// </summary>
+    public Point? FindCompetitiveProgressButton(Bitmap b)
+    {
+        // 1. Bottom edge of the red queue-mode buttons (COMPETITIVE PLAY / 6V6 …), left column.
+        int rx0 = (int)(b.Width * 0.023f),  rx1 = (int)(b.Width * 0.129f);   // ≈ x60..330 @2560
+        int ry0 = (int)(b.Height * 0.45f),  ry1 = (int)(b.Height * 0.78f);   // ≈ y648..1123
+        var rRect = Rectangle.FromLTRB(rx0, ry0, Math.Min(rx1, b.Width), Math.Min(ry1, b.Height));
+        var rData = b.LockBits(rRect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        int rStride = rData.Stride;
+        var rBuf = new byte[Math.Abs(rStride) * rRect.Height];
+        Marshal.Copy(rData.Scan0, rBuf, 0, rBuf.Length);
+        b.UnlockBits(rData);
+
+        int redBot = -1;
+        var redThr = rRect.Width / 3;                     // ≥⅓ of the scanned width is red-dominant
+        for (var y = 0; y < rRect.Height; y++)
+        {
+            var rb = y * rStride; var c = 0;
+            for (var x = 0; x < rRect.Width; x++)
+            {
+                var i = rb + x * 4; int bl = rBuf[i], gr = rBuf[i + 1], rd = rBuf[i + 2];
+                if (rd > 90 && rd > gr + 25 && rd > bl + 25) c++;
+            }
+            if (c >= redThr) redBot = ry0 + y;            // keep the LAST (lowest) red row
+        }
+        if (redBot < 0) return null;
+
+        // 2. The white-tile icon strip sits just below the red buttons. Profile near-white rows in a
+        //    band starting a little below the red bottom (skips the buttons' own white labels).
+        int wy0 = redBot + 20, wy1 = Math.Min(redBot + 170, b.Height);
+        int wx0 = (int)(b.Width * 0.031f), wx1 = (int)(b.Width * 0.266f);    // ≈ x80..680 @2560
+        if (wy1 - wy0 < 20) return null;
+        var wRect = Rectangle.FromLTRB(wx0, wy0, Math.Min(wx1, b.Width), wy1);
+        var wData = b.LockBits(wRect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        int wStride = wData.Stride;
+        var wBuf = new byte[Math.Abs(wStride) * wRect.Height];
+        Marshal.Copy(wData.Scan0, wBuf, 0, wBuf.Length);
+        b.UnlockBits(wData);
+
+        static bool IsWhite(byte[] buf, int i) =>
+            buf[i] > 225 && buf[i + 1] > 225 && buf[i + 2] > 225;           // B,G,R all bright
+
+        int bandTop = -1, bandBot = -1;
+        var rowThr = wRect.Width / 6;
+        for (var y = 0; y < wRect.Height; y++)
+        {
+            var rb = y * wStride; var c = 0;
+            for (var x = 0; x < wRect.Width; x++) if (IsWhite(wBuf, rb + x * 4)) c++;
+            if (c >= rowThr) { if (bandTop < 0) bandTop = y; bandBot = y; }
+        }
+        if (bandTop < 0) return null;
+
+        // 3. Leftmost white tile within the strip → the 2nd tile (PROGRESS) is one fixed offset right.
+        var colThr = (bandBot - bandTop + 1) / 4;
+        int leftX = -1;
+        for (var x = 0; x < wRect.Width && leftX < 0; x++)
+        {
+            var c = 0;
+            for (var y = bandTop; y <= bandBot; y++) if (IsWhite(wBuf, y * wStride + x * 4)) c++;
+            if (c >= colThr) leftX = wx0 + x;             // strip's left edge = 1st tile's left edge
+        }
+        if (leftX < 0) return null;
+
+        const int LeftEdgeToProgressX = 170;              // 1st-tile left edge → 2nd-tile centre @2560
+        return new Point(leftX + LeftEdgeToProgressX, wy0 + (bandTop + bandBot) / 2);
+    }
+
     // ── Click-target locators (return screen-space centre to click) ─────────
 
     /// <summary>Locates the "CAREER PROFILE" button on the escape menu.</summary>
@@ -541,20 +617,19 @@ public sealed class ScreenDetector
             rows[y] = (rowCount, rMinX, rMaxX);
         }
 
-        // Find the densest contiguous cluster of cyan rows (tolerating small gaps).
-        // This isolates the selected row's box and ignores faint stray cyan elsewhere.
+        // Group cyan rows into contiguous clusters (tolerating small gaps). The selection box is
+        // drawn as a hollow CYAN BORDER over a white/transparent interior, so a single box yields
+        // TWO clusters — its top border and its bottom border — separated by the ~90 px white
+        // interior. We collect all clusters, then below stitch the box's two borders back together.
         const int RowThreshold = 20;   // a real box-border row has a long cyan run
-        const int MaxGap       = 16;   // px gap tolerated within one cluster (pre-scale)
-        int bestTotal = 0, bestTop = -1, bestBot = -1, bestMinX = 0, bestMaxX = 0;
+        const int MaxGap       = 16;   // px gap tolerated WITHIN one border cluster (pre-scale)
+        var clusters = new List<(int Top, int Bot, int Total, int MinX, int MaxX)>();
         int curTotal = 0, curTop = -1, curBot = -1, curMinX = int.MaxValue, curMaxX = int.MinValue, gap = 0;
 
         void Flush()
         {
-            if (curTop >= 0 && curTotal > bestTotal)
-            {
-                bestTotal = curTotal; bestTop = curTop; bestBot = curBot;
-                bestMinX = curMinX;   bestMaxX = curMaxX;
-            }
+            if (curTop >= 0)
+                clusters.Add((curTop, curBot, curTotal, curMinX, curMaxX));
             curTotal = 0; curTop = -1; curBot = -1; curMinX = int.MaxValue; curMaxX = int.MinValue; gap = 0;
         }
 
@@ -576,11 +651,35 @@ public sealed class ScreenDetector
         }
         Flush();
 
-        if (bestTop < 0 || bestTotal < 40) return null;
+        // Keep only BORDER clusters — those spanning most of the row width. The list is littered
+        // with narrow cyan clusters (the blue UNRANKED lightning-bolt icon in every quick-play row,
+        // ~80 px wide); a real selection-box border runs the full row width (~1200 px). Filtering by
+        // width rejects the icons so they can't be mistaken for, or stitched into, the box.
+        int minBorderWidth = (int)(rect.Width * 0.5f);
+        var borders = clusters.Where(c => c.MaxX - c.MinX >= minBorderWidth).ToList();
+        if (borders.Count == 0) return null;
+
+        // Seed on the densest border, then STITCH the box's opposite border (the nearest other
+        // border within one row-height) so the returned rectangle is the FULL box. Its midpoint is
+        // then the row's true centre — not a 4 px border sliver whose midpoint sits at the box edge,
+        // ~half a row off, which dragged the queue ROI down into the NEXT row and misread its label.
+        const int MaxBoxSpan = 120;    // a box's top & bottom borders sit ~90 px apart
+        var seed = borders.OrderByDescending(c => c.Total).First();
+        if (seed.Total < 40) return null;
+        int top = seed.Top, bot = seed.Bot, minX = seed.MinX, maxX = seed.MaxX;
+        foreach (var c in borders)
+        {
+            if (c.Top <= bot + MaxBoxSpan && c.Bot >= top - MaxBoxSpan)
+            {
+                top  = Math.Min(top, c.Top);   bot  = Math.Max(bot, c.Bot);
+                minX = Math.Min(minX, c.MinX); maxX = Math.Max(maxX, c.MaxX);
+            }
+        }
+
         return new Rectangle(
-            x0 + bestMinX, y0 + bestTop,
-            Math.Max(1, bestMaxX - bestMinX),
-            Math.Max(1, bestBot - bestTop));
+            x0 + minX, y0 + top,
+            Math.Max(1, maxX - minX),
+            Math.Max(1, bot - top));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
