@@ -224,6 +224,15 @@ public sealed class OcrEngine : IDisposable
             raw.Contains("OPEN")  ? "OPEN QUEUE" :
             string.Empty;
 
+        // Consistency guard against an adjacent-row bleed. COMPETITIVE is ALWAYS Role/Open Queue —
+        // it never pairs with QUICK PLAY. Queue resolution above prefers ROLE/OPEN over QUICK, so a
+        // resolved "QUICK PLAY" means NO role/open token was read at all → a "COMPETITIVE" token
+        // here came from a neighbouring row whose label bled into the ROI, not this row. Downgrade
+        // it to UNRANKED (the only ranking QUICK PLAY takes). This backstops the cyan-box anchor:
+        // if the ROI still catches a neighbour's pink COMPETITIVE label, the queue type vetoes it.
+        if (ranking == "COMPETITIVE" && queue == "QUICK PLAY")
+            ranking = "UNRANKED";
+
         // 6v6 modes carry a literal "6V6" in the label (e.g. "UNRANKED 6V6 QUICK PLAY"). This is
         // the reliable team-size signal — the Teams scoreboard renders 6 tighter rows per side.
         // Match the contiguous token tolerantly for OCR drift (6→G/0): [6G0]V[6G0].
@@ -626,6 +635,26 @@ public sealed class OcrEngine : IDisposable
                 var (val, conf) = _digits.ReadCell(screen, rect);
                 if (val > 0 && conf >= 0.78) result[c] = val;
             }
+        }
+
+        // Bright-highlight rescue. The LOCAL player's row carries a bright cyan highlight that PULSES;
+        // at the pulse's peak the white stat digits lose contrast against it, so every normal greyscale
+        // pass reads 0 (and DigitOcr's confidence gate rejects the longer DMG glyphs) — which then
+        // breaks IdentifyMe (my row's DMG must match the Personal fingerprint). A white-text LUMINANCE
+        // mask isolates the pure-white digits regardless of background brightness (the same technique
+        // map/hero names use on the bright menu gradient), recovering the washed cells. Additive: only
+        // fills columns still reading 0, so genuine zeros (a pure healer's 0 dmg/elims, where the mask
+        // finds no white digits → 0) are untouched.
+        if (result.Any(v => v == 0))
+        {
+            try
+            {
+                var white = SnapStatRow(ReadWords(roi: roi, source: screen,
+                    mode: PageSegMode.SingleLine, scale: 3, whiteText: true));
+                for (var c = 0; c < nCols; c++)
+                    if (result[c] == 0 && white[c] > 0) result[c] = white[c];
+            }
+            catch { /* rescue is best-effort */ }
         }
         return result;
     }

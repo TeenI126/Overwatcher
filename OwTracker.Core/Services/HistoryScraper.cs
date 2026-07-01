@@ -136,6 +136,7 @@ public sealed class HistoryScraper
         var consecutiveSeen = 0;
         var consecutiveViewFails = 0;
         var seenThisRun = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var recoveredOpenAt = -1;   // last gameIndex where we recovered from an accidental match-open
 
         // gameIndex 0 = most recent game. After viewing a report the list returns to the top
         // but keyboard focus is lost, so each iteration we re-anchor by HOVERING the top row
@@ -179,6 +180,19 @@ public sealed class HistoryScraper
 
             if (box is null)
             {
+                // We may have accidentally OPENED a match instead of selecting it. When the list is
+                // reached by ESC-closing a previous match detail (e.g. a scrape started while OW was
+                // left on a game report), OW restores that row as already-selected, so the first
+                // Space ACTIVATES it (opens the report) rather than just highlighting → we land on
+                // MatchDetail with no cyan box. ESC back to the list and retry this index once.
+                if (recoveredOpenAt != gameIndex && DetectCurrent() == GameScreen.MatchDetail)
+                {
+                    Log("  Space opened a match instead of selecting (stale list focus) — ESC back and retrying.");
+                    recoveredOpenAt = gameIndex;
+                    await BackToListAsync(ct);
+                    gameIndex--;          // retry the same index
+                    continue;
+                }
                 Log("  No selected game row (Down landed on VIEW button / end of list). Stopping.");
                 break;
             }
@@ -325,10 +339,16 @@ public sealed class HistoryScraper
         // --- Summary ---
         await ClickMatchDetailTabAsync("SUMMARY", ct);
 
-        // Capture + extract the Summary, retrying once if the map title reads as garbage. On the
-        // first match opened the Summary header is sometimes still loading/animating in when
-        // captured, so the map name OCRs to symbol soup ("{e]V}]¥.1.]") that Snap can't resolve.
-        // A short settle + re-capture recovers it; a genuinely off map keeps its raw read.
+        // Capture + extract the Summary, retrying once if it reads weakly. Two failure modes get the
+        // same settle-and-recapture treatment, because both come from the header still loading/
+        // animating in when captured on the first match opened:
+        //   • the MAP TITLE OCRs to symbol soup ("{e]V}]¥.1.]") that Snap can't resolve, OR
+        //   • the MATCH DATE can't be parsed → DateTime.MinValue. An unreadable date is worse than a
+        //     bad map: it gives the record a (MapName, 0001-01-01) dedup key, so a LATER date-failure
+        //     on the same map would silently OVERWRITE this match, and it sorts to year 0001 in the
+        //     UI. (This is exactly how three real Jun-2026 matches ended up stored undateable.)
+        // A short settle + re-capture recovers the transient case; a persistent failure keeps the
+        // raw read but is logged loudly with a saved frame for recalibration.
         SummaryData? summary = null;
         for (var attempt = 0; attempt < 2; attempt++)
         {
@@ -337,19 +357,24 @@ public sealed class HistoryScraper
             try
             {
                 summary = _ocr.ExtractSummary(screen);
-                if (!MapRoster.IsKnown(summary.MapName))
+                var mapBad  = !MapRoster.IsKnown(summary.MapName);
+                var dateBad = summary.MatchDatetime == DateTime.MinValue;
+                if (mapBad || dateBad)
                 {
-                    // Save the frame so the Summary map-name ROI can be inspected/recalibrated.
+                    // Save the frame so the Summary map-name / date ROI can be inspected/recalibrated.
                     var gpath = Path.Combine(AppPaths.DebugDirectory,
                         $"debug_summary_garbled_a{attempt}_{DateTime.Now:HHmmss}.png");
                     try { screen.Save(gpath, System.Drawing.Imaging.ImageFormat.Png); } catch { }
+                    var what = mapBad && dateBad ? $"map [{summary.MapName}] + date"
+                             : mapBad            ? $"map title [{summary.MapName}]"
+                             :                      "match date";
                     if (attempt == 0)
                     {
-                        Log($"    Garbled map title [{summary.MapName}] — re-capturing after settle. frame → {gpath}");
+                        Log($"    Garbled {what} — re-capturing after settle. frame → {gpath}");
                         await Task.Delay(700, ct);
                         continue;
                     }
-                    Log($"    Garbled map title [{summary.MapName}] persists. frame → {gpath}");
+                    Log($"    Garbled {what} persists.{(dateBad ? " Match will be stored WITHOUT a timestamp." : "")} frame → {gpath}");
                 }
                 Log($"    → {summary.MapName}  {summary.Outcome}  {summary.MatchDatetime:MM/dd/yy HH:mm}");
                 break;
@@ -429,13 +454,16 @@ public sealed class HistoryScraper
                 LogTeam("MY ", my);
                 LogTeam("ENM", enm);
 
-                // Red flag: a row with a 0 in E or DMG — a real player rarely has exactly 0 of
-                // either, so a 0 most likely means a missed/misaligned cell. Save the frame for
-                // debugging (independent of the ≥3-weak retry, which one bad cell won't trigger).
-                // Deaths is EXCLUDED: 0 deaths is common in one-sided games, so D==0 over-triggered.
-                // Assists, Healing and Mitigation are likewise legitimately 0 for many heroes.
+                // Red flag: a row whose 0 DMG is almost certainly a missed/washed cell rather than
+                // real. A pure healer legitimately has 0 damage AND 0 elims (PINKPOTRIN: E0 DMG0 but
+                // HEAL 32k) — so DMG==0 is only suspicious when the player clearly DID something the
+                // read contradicts: got eliminations (impossible with 0 damage), or did literally
+                // nothing measurable (0 heal AND 0 mitigation too → the whole row washed out). This
+                // avoids the false positives that flagged every support. (E/A/D/H/MIT == 0 alone are
+                // all legitimately common, so they don't trigger on their own.)
                 static bool ZeroRow(TeamPlayerData p) =>
-                    p.Eliminations == 0 || p.DamageDealt == 0;
+                    p.DamageDealt == 0 &&
+                    (p.Eliminations > 0 || (p.HealingDone == 0 && p.DamageMitigated == 0));
                 var zeroRows = my.Count(ZeroRow) + enm.Count(ZeroRow);
                 if (zeroRows > 0)
                 {
@@ -893,8 +921,13 @@ public sealed class HistoryScraper
             await _input.ClickAsync(compTarget, ct);
             await Task.Delay(800, ct);
 
-            Log($"  rank: clicking PROGRESS button at {UiCoordinates.CompProgress_ProgressButton}…");
-            await _input.ClickAsync(UiCoordinates.CompProgress_ProgressButton, ct);
+            // The PROGRESS icon drifts vertically between layouts, so anchor it to the white icon
+            // strip below the red queue buttons rather than trusting the fixed coordinate.
+            Point? prog;
+            using (var s = Capture()) prog = s is null ? null : _detector.FindCompetitiveProgressButton(s);
+            var progTarget = prog ?? UiCoordinates.CompProgress_ProgressButton;
+            Log($"  rank: clicking PROGRESS button at {progTarget}{(prog is null ? " (fallback)" : " (anchored)")}…");
+            await _input.ClickAsync(progTarget, ct);
             await Task.Delay(900, ct);
             current = DetectCurrentVerbose("rank after PROGRESS");
             if (current != GameScreen.CompetitiveProgress)

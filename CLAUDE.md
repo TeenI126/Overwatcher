@@ -186,8 +186,13 @@ Navigation (`NavigateToCompetitiveProgressAsync`, all `CompProgress_*` coords **
 2560×1440): unwind to **HOME** (detected by the `HEROES`/`EVENTS` top-nav fingerprint — needed to
 stop the ESC loop oscillating home↔escape-menu) → click **PLAY** (the blue pill centres at ≈(1280,52),
 *above* where you'd guess; its italic label OCRs poorly so a fixed coord is the fallback) → click the
-**COMPETITIVE** tab → click the **PROGRESS** button (2nd icon, circular-checkmark, no label → fixed
-coord `CompProgress_ProgressButton` ≈(285,1035)) → `GameScreen.CompetitiveProgress`. Two OCR gotchas
+**COMPETITIVE** tab → click the **PROGRESS** button (2nd icon, circular-checkmark, no label) →
+`GameScreen.CompetitiveProgress`. The PROGRESS button has **no text** AND its **Y drifts** between
+layouts (the number/height of queue-mode buttons above it changes between seasons / comp drives /
+placements — it rendered ~140 px above the original `CompProgress_ProgressButton` ≈(285,1035) fixed
+coord), so it's located **geometrically** by `ScreenDetector.FindCompetitiveProgressButton`: find the
+bottom of the RED queue-mode buttons → the strip of bright-WHITE notched icon tiles just below them →
+return the 2nd tile's centre (the fixed coord is only the fallback). Two OCR gotchas
 drove the design: the lobby's **"COMPETITIVE" tab label reliably garbles** ("COMPETTIVE"/"COMPENINIVE")
 so it's located on the `OMPE` fragment (`FindCompetitiveTab`), and the **PlayMenu screen OCRs too
 unreliably to gate on** (it often mis-reads as Home) — so the nav clicks COMPETITIVE→PROGRESS
@@ -249,6 +254,13 @@ OCR is fragile and was tuned empirically against real 2560×1440 screenshots. Ha
   QUICK PLAY") — `ParseQueue` matches `[6G0]V[6G0]` and sets `QueueRowData.TeamSize`, used to size
   the fixed-grid fallback. The queue ROI is tall enough (108 px) to catch the "6V6" line despite
   cyan-box position variance, but not so tall it bleeds into adjacent list rows.
+- **Stadium** is its own ranking mode: `ParseQueue` reads it (the colored label OCRs as "STADIUM
+  QUICK …") and stores `RankingMode="STADIUM"`. Its `QueueType` is unreliable — the 108 px ROI bleeds
+  the adjacent row's "ROLE QUEUE"/"QUICK PLAY" line — so the UI does **not** subdivide Stadium by
+  queue: `StatsService.RankTag`/`GameModeLabel` bucket any STADIUM match as the single mode **"Stadium"**
+  (else it collapsed into "Quick Play" because STADIUM contains neither "COMP" nor "UNRANK"). Add new
+  game modes to `RankTag`/`GameModeLabel`/`GameModes` together — the Dashboard + Stored Games filters
+  both derive their dropdowns from `GameModes`.
 - **Teams stat columns are read as one wide strip per row, not six tiny ROIs.** `OcrEngine.ReadStatRow`
   OCRs `Teams_StatStrip` once, then snaps each detected number to its nearest column centre
   (`Teams_StatColumnCentersX`), re-merging comma-split fragments. Lone single-cell ROIs misread
@@ -272,6 +284,18 @@ OCR is fragile and was tuned empirically against real 2560×1440 screenshots. Ha
   where all 3 Tesseract scales agree, segments via the SAME `DigitOcr.Segment`, and averages per
   digit. `DigitOcr.Segment`/`Match` are shared so training and inference preprocess identically.
   Resolution-specific (like `UiCoordinates`); also fixed a few cells whose Tesseract VOTE was wrong.
+- **The local player's Teams row PULSES with a bright cyan highlight** (the game's "this is you" cue).
+  At the pulse's peak the white stat digits lose contrast against it, so ALL greyscale passes read 0
+  AND DigitOcr's confidence gate rejects the longer DMG glyphs → my row's DMG reads 0 → **`IdentifyMe`
+  can't match it to the Personal-tab DMG fingerprint → IsMe goes unset and the whole row stays the
+  garbage Teams read** (Personal values never get applied). It's intermittent — depends on the pulse
+  phase at capture. Fix: `ReadStatRow` ends with a **white-text-mask rescue** (`ReadWords(whiteText:
+  true)`, luminance ≥190) that isolates the pure-white digits independent of background brightness
+  (same technique as map/hero names) and fills any column still reading 0. Additive + safe on genuine
+  zeros: a pure healer (E0 DMG0, HEAL 32k) has no white digits in those cells → mask reads 0 →
+  unchanged. The **zero-row debug warning** (`HistoryScraper.ZeroRow`) is correspondingly narrow — it
+  flags `DMG==0` only when contradicted (got elims, or did literally nothing: 0 heal AND 0 mit) so it
+  no longer fires on every support.
 - **Hero playtimes (my heroes) need no portrait classifier, all read from the Personal tab.**
   `ScrapePersonalAllHeroesAsync` opens **ALL HEROES first** and reads the sidebar hero names there
   (`ReadHeroTabName`, snapped to `HeroRoster`) — names must be read from a frame where the hero is
