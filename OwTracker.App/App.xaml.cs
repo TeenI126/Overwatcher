@@ -16,6 +16,8 @@ public partial class App : Application
 {
     private ServiceProvider?  _services;
     private OverwatchWatcher? _watcher;
+    private MainWindow?       _mainWindow;
+    private System.Windows.Forms.NotifyIcon? _trayIcon;
 
     [DllImport("kernel32.dll")] private static extern bool AttachConsole(int dwProcessId);
     private const int ATTACH_PARENT_PROCESS = -1;
@@ -23,7 +25,6 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         // ── Global exception hooks ────────────────────────────────────────
-        // Surface any exception that would otherwise silently terminate the process.
         DispatcherUnhandledException += (_, ex) =>
         {
             ShowAndLogError("Dispatcher exception", ex.Exception);
@@ -40,15 +41,6 @@ public partial class App : Application
         };
 
         // ── Headless CLI scrape: "OwTracker.App.exe --scrape [N]" ──────────
-        // Runs a scrape (optionally limited to the last N games) with no window, then exits.
-        // Output goes to %APPDATA%\OwTracker\scrape.log as usual (and the parent console if any).
-        // Lets the scraper be driven non-interactively for iteration/automation.
-        // "--scrape [N]"      : scrape newest N (or until 3 consecutive duplicates / end of list).
-        // "--scrape-deep [N]" : same but DON'T stop on duplicates — walk the whole list (back-fill
-        //                       or reach old games e.g. 6v6) and save every Teams frame.
-        // "--from K"          : start the row counter at game K (jump past the first K games) —
-        //                       e.g. "--scrape-deep --from 44" reaches the 6v6 cluster fast.
-        // "--no-rank"         : skip the competitive-rank snapshot, scrape matches only.
         var deepIdx   = Array.FindIndex(e.Args, a => a.Equals("--scrape-deep", StringComparison.OrdinalIgnoreCase));
         var scrapeIdx = deepIdx >= 0 ? deepIdx
                       : Array.FindIndex(e.Args, a => a.Equals("--scrape", StringComparison.OrdinalIgnoreCase));
@@ -60,8 +52,8 @@ public partial class App : Application
             var start   = fromIdx >= 0 && fromIdx + 1 < e.Args.Length && int.TryParse(e.Args[fromIdx + 1], out var s)
                 ? s : 0;
             var captureRank = Array.FindIndex(e.Args, a => a.Equals("--no-rank", StringComparison.OrdinalIgnoreCase)) < 0;
-            ShutdownMode = ShutdownMode.OnExplicitShutdown;  // stay alive until the scrape finishes
-            AttachConsole(ATTACH_PARENT_PROCESS);            // best-effort: echo to the caller's console
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            AttachConsole(ATTACH_PARENT_PROCESS);
             _ = RunHeadlessScrapeAsync(max, stopOnDuplicates: deepIdx < 0, startIndex: start, captureRank: captureRank);
             return;
         }
@@ -70,6 +62,9 @@ public partial class App : Application
         try
         {
             base.OnStartup(e);
+
+            // Keep the process alive when the window is hidden to tray.
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
             var collection = new ServiceCollection();
             ConfigureServices(collection);
@@ -81,6 +76,10 @@ public partial class App : Application
             _watcher.Start();
 
             var window = _services.GetRequiredService<MainWindow>();
+            _mainWindow = window;
+
+            InitTrayIcon();
+
             window.Show();
 
             var main = _services.GetRequiredService<MainViewModel>();
@@ -93,7 +92,119 @@ public partial class App : Application
         }
     }
 
-    /// <summary>Runs a scrape with no UI and exits the process (exit code 0 = success).</summary>
+    // ── Tray icon ─────────────────────────────────────────────────────────
+
+    private void InitTrayIcon()
+    {
+        var dashboard = _services!.GetRequiredService<DashboardViewModel>();
+
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+
+        var scrapeOne = new System.Windows.Forms.ToolStripMenuItem("Scrape Last Match");
+        scrapeOne.Click += (_, _) => TrayScapeAction(dashboard, 1);
+
+        var scrapeThree = new System.Windows.Forms.ToolStripMenuItem("Scrape Last 3 Matches");
+        scrapeThree.Click += (_, _) => TrayScapeAction(dashboard, 3);
+
+        var open = new System.Windows.Forms.ToolStripMenuItem("Open Overwatcher");
+        open.Click += (_, _) => ShowWindow();
+        open.Font = new System.Drawing.Font(open.Font, System.Drawing.FontStyle.Bold);
+
+        var exit = new System.Windows.Forms.ToolStripMenuItem("Exit");
+        exit.Click += (_, _) => ExitApp();
+
+        menu.Items.Add(scrapeOne);
+        menu.Items.Add(scrapeThree);
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add(open);
+        menu.Items.Add(exit);
+
+        _trayIcon = new System.Windows.Forms.NotifyIcon
+        {
+            Icon             = CreateTrayIcon(),
+            Text             = "Overwatcher",
+            Visible          = true,
+            ContextMenuStrip = menu,
+        };
+
+        _trayIcon.DoubleClick += (_, _) => ShowWindow();
+    }
+
+    private void TrayScapeAction(DashboardViewModel dashboard, int maxGames)
+    {
+        Dispatcher.BeginInvoke(async () =>
+        {
+            if (dashboard.IsScraping)
+            {
+                _trayIcon?.ShowBalloonTip(3000, "Overwatcher",
+                    "A scrape is already in progress.", System.Windows.Forms.ToolTipIcon.Warning);
+                return;
+            }
+            if (!dashboard.Watcher.IsOwRunning)
+            {
+                _trayIcon?.ShowBalloonTip(3000, "Overwatcher",
+                    "Overwatch is not running.", System.Windows.Forms.ToolTipIcon.Warning);
+                return;
+            }
+
+            await dashboard.ScrapeForTrayAsync(maxGames);
+
+            var result = dashboard.ScrapeLog.LastOrDefault() ?? "Scrape complete.";
+            _trayIcon?.ShowBalloonTip(4000, "Overwatcher", result, System.Windows.Forms.ToolTipIcon.Info);
+        });
+    }
+
+    private void ShowWindow()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_mainWindow is null) return;
+            _mainWindow.Show();
+            if (_mainWindow.WindowState == WindowState.Minimized)
+                _mainWindow.WindowState = WindowState.Normal;
+            _mainWindow.Activate();
+        });
+    }
+
+    private void ExitApp()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_mainWindow is not null)
+                _mainWindow.AllowClose = true;
+            _trayIcon?.Dispose();
+            _trayIcon = null;
+            Shutdown();
+        });
+    }
+
+    private static System.Drawing.Icon CreateTrayIcon()
+    {
+        using var bmp = new System.Drawing.Bitmap(32, 32);
+        using var g   = System.Drawing.Graphics.FromImage(bmp);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.Clear(System.Drawing.Color.Transparent);
+
+        // Orange accent background
+        using var bg = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(0xFF, 0x7A, 0x18));
+        g.FillRectangle(bg, 0, 0, 32, 32);
+
+        // "OW" label in dark ink
+        using var fg   = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(0x1A, 0x12, 0x05));
+        using var font = new System.Drawing.Font("Segoe UI", 9f, System.Drawing.FontStyle.Bold);
+        var sf = new System.Drawing.StringFormat
+        {
+            Alignment     = System.Drawing.StringAlignment.Center,
+            LineAlignment = System.Drawing.StringAlignment.Center,
+        };
+        g.DrawString("OW", font, fg, new System.Drawing.RectangleF(0, 1, 32, 31), sf);
+
+        // Icon.FromHandle borrows the GDI HICON; the bitmap stays alive for the app's lifetime.
+        return System.Drawing.Icon.FromHandle(bmp.GetHicon());
+    }
+
+    // ── Headless scrape ───────────────────────────────────────────────────
+
     private async Task RunHeadlessScrapeAsync(int? maxGames, bool stopOnDuplicates = true, int startIndex = 0,
         bool captureRank = true)
     {
@@ -114,8 +225,6 @@ public partial class App : Application
                 await tess.EnsureReadyAsync();
             }
 
-            // Start the watcher — it polls window titles to locate OW's handle, which
-            // BringOwToForeground needs. Wait briefly for it to detect the game.
             _watcher = _services.GetRequiredService<OverwatchWatcher>();
             _watcher.Start();
             for (var i = 0; i < 25 && !_watcher.IsOwRunning; i++)
@@ -211,6 +320,7 @@ public partial class App : Application
 
     protected override async void OnExit(ExitEventArgs e)
     {
+        _trayIcon?.Dispose();
         if (_watcher is not null)
             await _watcher.StopAsync();
         _services?.Dispose();
@@ -224,7 +334,7 @@ public partial class App : Application
         var msg = $"{context}:\n\n{ex}";
         LogError(context, ex);
         try { MessageBox.Show(msg, "OW Tracker Error", MessageBoxButton.OK, MessageBoxImage.Error); }
-        catch { /* MessageBox itself failed — nothing we can do */ }
+        catch { }
     }
 
     private static void LogError(string context, Exception? ex)

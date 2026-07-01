@@ -241,6 +241,8 @@ public sealed partial class DashboardViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStartScrape))]
     private Task ScrapeLastMatchAsync() => RunScrapeAsync(1);
 
+    internal Task ScrapeForTrayAsync(int maxGames) => RunScrapeAsync(maxGames);
+
     private async Task RunScrapeAsync(int? maxGames)
     {
         IsScraping = true;
