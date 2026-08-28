@@ -7,6 +7,7 @@
     { "name": "Bastion", "role": "Damage" },
     { "name": "Brigitte", "role": "Support" },
     { "name": "Cassidy", "role": "Damage" },
+    { "name": "D.Mon", "role": "Tank" },
     { "name": "D.Va", "role": "Tank" },
     { "name": "Doomfist", "role": "Tank" },
     { "name": "Echo", "role": "Damage" },

@@ -1914,6 +1914,7 @@ public class OcrSmokeTests
     [InlineData("MASTER",      "Master")]
     [InlineData("GRANDMASTER", "Grandmaster")]   // must win over the MASTER substring
     [InlineData("PLATINUM",    "Platinum")]
+    [InlineData("EMERALD",     "Emerald")]
     [InlineData("GOLD",        "Gold")]
     [InlineData("CHAMPION",    "Champion")]
     [InlineData("zzzzz",       null)]
@@ -1933,11 +1934,12 @@ public class OcrSmokeTests
     [InlineData("Bronze",  5,   0,  0.0)]    // ladder floor
     [InlineData("Bronze",  1,   0,  4.0)]    // top of Bronze
     [InlineData("Silver",  5,   0,  5.0)]    // next division floor
-    [InlineData("Diamond", 5,   0, 20.0)]
-    [InlineData("Diamond", 1,   0, 24.0)]
-    [InlineData("Diamond", 5,  -2, 19.98)]   // negative within-tier progress
-    [InlineData("Master",  2, -20, 27.8)]    // Master 2 at -20%
-    [InlineData("Champion",1, 100, 40.0)]    // ceiling
+    [InlineData("Emerald", 5,   0, 20.0)]    // inserted between Platinum and Diamond
+    [InlineData("Diamond", 5,   0, 25.0)]
+    [InlineData("Diamond", 1,   0, 29.0)]
+    [InlineData("Diamond", 5,  -2, 24.98)]   // negative within-tier progress
+    [InlineData("Master",  2, -20, 32.8)]    // Master 2 at -20%
+    [InlineData("Champion",1, 100, 45.0)]    // ceiling
     public void RankRoster_Score_LaddersMonotonically(string div, int tier, int prog, double expected)
         => Assert.Equal(expected, RankRoster.Score(div, tier, prog)!.Value, 3);
 

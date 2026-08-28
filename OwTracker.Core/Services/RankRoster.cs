@@ -9,10 +9,15 @@ namespace OwTracker.Core.Services;
 /// </summary>
 public static class RankRoster
 {
-    /// <summary>Divisions low → high. Each has tiers 5 (lowest) → 1 (highest).</summary>
+    /// <summary>Divisions low → high. Each has tiers 5 (lowest) → 1 (highest). Emerald was inserted
+    /// between Platinum and Diamond after the ladder was already in use — old snapshots recorded
+    /// before Emerald existed keep their original division label (Diamond etc.), so the ladder score
+    /// for that historical data now sits one division-band higher than it used to (a retroactive
+    /// gap opens where Emerald sits). No attempt is made to infer which pre-Emerald ranks would now
+    /// read as Emerald — that mapping isn't recoverable from the stored data.</summary>
     public static readonly IReadOnlyList<string> Divisions = new[]
     {
-        "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Master", "Grandmaster", "Champion",
+        "Bronze", "Silver", "Gold", "Platinum", "Emerald", "Diamond", "Master", "Grandmaster", "Champion",
     };
 
     /// <summary>The role cards on the COMPETITIVE PROGRESS screen, in left→right card order.</summary>
@@ -31,6 +36,7 @@ public static class RankRoster
         if (up.Contains("BRONZE") || up.Contains("RONZE"))                       return "Bronze";
         if (up.Contains("SILVER") || up.Contains("ILVER"))                       return "Silver";
         if (up.Contains("PLATIN") || up.Contains("LATIN"))                       return "Platinum";
+        if (up.Contains("EMERAL") || up.Contains("MERALD"))                      return "Emerald";
         if (up.Contains("DIAMON") || up.Contains("IAMON"))                       return "Diamond";
         if (up.Contains("GRANDM") || up.Contains("RANDMA") || up.Contains("GRAND")) return "Grandmaster";
         if (up.Contains("MASTER") || up.Contains("ASTER"))                       return "Master";
