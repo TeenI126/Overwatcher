@@ -32,6 +32,7 @@ public static class HeroRoster
         "Mercy", "Moira", "Zenyatta",
         // Newer heroes added from the live in-game roster (the lists above lag real releases).
         "Mizuki", "Domina", "Anran", "Emre", "Sierra", "Jetpack Cat", "Wuyang", "Freja", "Shion",
+        "D.Mon",
     };
 
     /// <summary>User-editable roster file (merged with the built-in defaults).</summary>
@@ -90,7 +91,7 @@ public static class HeroRoster
         ["D.Va"] = "tank", ["Doomfist"] = "tank", ["Hazard"] = "tank", ["Junker Queen"] = "tank",
         ["Mauga"] = "tank", ["Orisa"] = "tank", ["Ramattra"] = "tank", ["Reinhardt"] = "tank",
         ["Roadhog"] = "tank", ["Sigma"] = "tank", ["Winston"] = "tank", ["Wrecking Ball"] = "tank",
-        ["Zarya"] = "tank",
+        ["Zarya"] = "tank", ["D.Mon"] = "tank",
         // Damage
         ["Ashe"] = "damage", ["Bastion"] = "damage", ["Cassidy"] = "damage", ["Echo"] = "damage",
         ["Genji"] = "damage", ["Hanzo"] = "damage", ["Junkrat"] = "damage", ["Mei"] = "damage",
